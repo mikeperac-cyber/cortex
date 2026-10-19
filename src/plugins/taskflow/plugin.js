@@ -113,17 +113,10 @@ class TaskFlowPlugin {
     `;
   }
 
-  addTask() {
-    const title = prompt('Task title:');
+  async addTask() {
+    const title = await Dialogs.ask({ title: 'New task', placeholder: 'Task title' });
     if (!title) return;
-    const column = prompt('Column (backlog/todo/inprogress/done):', 'todo');
-    const priority = prompt('Priority (high/medium/low):', 'medium');
-    this.tasks.push({
-      id: Date.now(), title,
-      column: this.columns.includes(column) ? column : 'todo',
-      priority: ['high', 'medium', 'low'].includes(priority) ? priority : 'medium',
-      due: null, tags: [],
-    });
+    this.tasks.push({ id: Date.now(), title, column: 'todo', priority: 'medium', due: null, tags: [] });
     this.saveTasks();
     this.renderPanel();
   }

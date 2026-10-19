@@ -352,20 +352,27 @@ const App = {
   },
 
   async createFile() {
-    const name = prompt('File name (with .md):');
-    if (!name) return;
-    const finalName = name.endsWith('.md') ? name : name + '.md';
-    const filePath = this.vaultPath + '/' + finalName;
-    await window.cortex.writeFile(filePath, '# ' + finalName.replace('.md', '') + '\n\nStart writing...\n');
+    const input = await Dialogs.ask({ title: 'New note', placeholder: 'Note name' });
+    if (!input) return;
+    const parsed = CortexLib.normalizeName(input, '.md');
+    if (!parsed.ok) { alert(parsed.error); return; }
+    const filePath = this.vaultPath + '/' + parsed.name;
+    const title = parsed.name.replace(/\.md$/i, '').split('/').pop();
+    // overwrite:false makes "create" atomic: an existing note is opened as-is, never rewritten
+    const result = await window.cortex.writeFile(filePath, '# ' + title + '\n\nStart writing...\n', { overwrite: false });
+    if (!result.success && !result.exists) { alert('Could not create the note: ' + result.error); return; }
     await this.renderFileTree();
     this.hideWelcome();
-    this.openFile(filePath);
+    await this.openFile(filePath);
   },
 
   async createFolder() {
-    const name = prompt('Folder name:');
-    if (!name) return;
-    await window.cortex.createFolder(this.vaultPath + '/' + name);
+    const input = await Dialogs.ask({ title: 'New folder', placeholder: 'Folder name' });
+    if (!input) return;
+    const parsed = CortexLib.normalizeName(input, '');
+    if (!parsed.ok) { alert(parsed.error); return; }
+    const result = await window.cortex.createFolder(this.vaultPath + '/' + parsed.name);
+    if (!result.success) { alert('Could not create the folder: ' + result.error); return; }
     await this.renderFileTree();
   },
 
@@ -377,11 +384,18 @@ const App = {
   },
 
   async renameFile(oldPath) {
-    const newName = prompt('New name:', oldPath.split(/[\\/]/).pop());
-    if (!newName) return;
-    const dir = oldPath.split(/[\\/]/).slice(0, -1).join('/');
-    const newPath = dir + '/' + newName;
-    await window.cortex.renameFile(oldPath, newPath);
+    const segments = oldPath.split(/[\\/]/);
+    const oldName = segments.pop();
+    const input = await Dialogs.ask({ title: 'Rename', value: oldName });
+    if (!input || input === oldName) return;
+    const parsed = CortexLib.normalizeName(input, '');
+    if (!parsed.ok) { alert(parsed.error); return; }
+    const newPath = segments.join('/') + '/' + parsed.name;
+    const result = await window.cortex.renameFile(oldPath, newPath);
+    if (!result.success) {
+      alert(result.exists ? '"' + parsed.name + '" already exists.' : 'Could not rename: ' + result.error);
+      return;
+    }
     this.closeTab(oldPath);
     await this.renderFileTree();
     this.openFile(newPath);

@@ -6,6 +6,7 @@
   "scripts": {
     "start": "electron .",
     "test": "node --test \"test/unit/*.test.js\"",
+    "test:e2e": "node test/e2e/all.js",
     "dev": "electron . --dev",
     "build": "electron-builder --win portable",
     "build:installer": "electron-builder --win nsis"

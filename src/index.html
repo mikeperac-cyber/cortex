@@ -200,17 +200,31 @@
     </div>
   </div>
 
+  <!-- Ask Dialog (replaces window.prompt, which Electron does not support) -->
+  <div class="modal-overlay" id="askOverlay">
+    <div class="ask-dialog" role="dialog" aria-modal="true" aria-labelledby="askTitle">
+      <label class="ask-title" id="askTitle" for="askInput"></label>
+      <input type="text" id="askInput" autocomplete="off" spellcheck="false">
+      <div class="ask-actions">
+        <button type="button" class="ask-btn" id="askCancel">Cancel</button>
+        <button type="button" class="ask-btn ask-btn-primary" id="askOk">OK</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Context Menu -->
   <div class="context-menu" id="contextMenu"></div>
 
   <!-- Plugin containers -->
   <div id="plugin-root"></div>
 
+  <script src="lib/names.js"></script>
   <script src="plugins/taskflow/plugin.js"></script>
   <script src="plugins/dailysync/plugin.js"></script>
   <script src="plugins/recall/plugin.js"></script>
   <script src="plugins/dataforge/plugin.js"></script>
   <script src="plugins/focuspulse/plugin.js"></script>
+  <script src="js/dialogs.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>

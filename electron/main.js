@@ -5,7 +5,10 @@ const { createVaultFs } = require('./vault-fs');
 const { isSafeExternalUrl } = require('./security');
 
 let mainWindow;
-let vaultPath = path.join(app.getPath('documents'), 'CortexVault');
+// CORTEX_VAULT points the app at another vault (the e2e harness uses a temp one)
+let vaultPath = process.env.CORTEX_VAULT
+  ? path.resolve(process.env.CORTEX_VAULT)
+  : path.join(app.getPath('documents'), 'CortexVault');
 
 const vaultFs = createVaultFs({
   getRoot: () => vaultPath,
@@ -52,6 +55,7 @@ function createWindow() {
     minWidth: 900,
     minHeight: 600,
     frame: false,
+    show: process.env.CORTEX_E2E !== '1',
     titleBarStyle: 'hidden',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
