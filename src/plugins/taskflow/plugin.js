@@ -93,21 +93,26 @@ class TaskFlowPlugin {
     `;
   }
 
+  // Task fields are user text and go into innerHTML: escape them (a method, not a global: plugins share one script scope)
+  esc(value) {
+    return String(value).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+  }
+
   renderTask(task) {
     const priorityColors = { high: 'var(--danger)', medium: 'var(--warning)', low: 'var(--success)' };
     return `
-      <div class="tf-task" data-id="${task.id}" draggable="true">
+      <div class="tf-task" data-id="${this.esc(task.id)}" draggable="true">
         <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
           <span style="width:8px;height:8px;border-radius:50%;background:${priorityColors[task.priority] || 'var(--text-3)'};"></span>
-          <span style="font-size:13px;flex:1;">${task.title}</span>
+          <span style="font-size:13px;flex:1;">${this.esc(task.title)}</span>
         </div>
-        ${task.due ? `<div style="font-size:11px;color:var(--text-2);margin-bottom:4px;">Due: ${task.due}</div>` : ''}
+        ${task.due ? `<div style="font-size:11px;color:var(--text-2);margin-bottom:4px;">Due: ${this.esc(task.due)}</div>` : ''}
         <div style="display:flex;gap:4px;flex-wrap:wrap;">
-          ${(task.tags || []).map(tag => `<span style="font-size:10px;padding:2px 6px;background:var(--bg-3);border-radius:3px;color:var(--text-2);">#${tag}</span>`).join('')}
+          ${(task.tags || []).map(tag => `<span style="font-size:10px;padding:2px 6px;background:var(--bg-3);border-radius:3px;color:var(--text-2);">#${this.esc(tag)}</span>`).join('')}
         </div>
         <div style="display:flex;gap:4px;margin-top:8px;">
-          <button class="tf-task-action" data-id="${task.id}" data-action="edit" style="font-size:10px;padding:2px 6px;background:var(--bg-3);border:none;border-radius:3px;color:var(--text-2);cursor:pointer;">Edit</button>
-          <button class="tf-task-action" data-id="${task.id}" data-action="delete" style="font-size:10px;padding:2px 6px;background:var(--bg-3);border:none;border-radius:3px;color:var(--danger);cursor:pointer;">Delete</button>
+          <button class="tf-task-action" data-id="${this.esc(task.id)}" data-action="edit" style="font-size:10px;padding:2px 6px;background:var(--bg-3);border:none;border-radius:3px;color:var(--text-2);cursor:pointer;">Edit</button>
+          <button class="tf-task-action" data-id="${this.esc(task.id)}" data-action="delete" style="font-size:10px;padding:2px 6px;background:var(--bg-3);border:none;border-radius:3px;color:var(--danger);cursor:pointer;">Delete</button>
         </div>
       </div>
     `;

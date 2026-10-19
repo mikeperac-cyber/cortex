@@ -5,8 +5,11 @@ const { createVaultFs } = require('./vault-fs');
 const { isSafeExternalUrl } = require('./security');
 
 let mainWindow;
-// CORTEX_VAULT points the app at another vault (the e2e harness uses a temp one)
-let vaultPath = process.env.CORTEX_VAULT
+// CORTEX_VAULT (another vault) and CORTEX_E2E (hidden window) are test hooks for the e2e harness: only an unpackaged run
+// honours them, so an environment variable can never repoint or hide an installed copy.
+const testHooks = !app.isPackaged;
+const e2e = testHooks && process.env.CORTEX_E2E === '1';
+let vaultPath = testHooks && process.env.CORTEX_VAULT
   ? path.resolve(process.env.CORTEX_VAULT)
   : path.join(app.getPath('documents'), 'CortexVault');
 
@@ -49,10 +52,14 @@ function requestFlush() {
 
 // The renderer saves before the root moves: afterwards its old absolute paths would be refused as outside the vault.
 // If it reports unsaved text the user wants to keep, the vault stays as it is.
+// Resolves true if the vault was switched, false if the path was rejected or the renderer vetoed. Anything that must happen
+// only on a real switch (an index reset, a watcher re-arm) belongs after the veto check, never before it.
 async function setVault(absPath) {
-  if (!(await requestFlush())) return;
+  if (typeof absPath !== 'string' || !absPath) return false;
+  if (!(await requestFlush())) return false;
   vaultPath = path.resolve(absPath);
   mainWindow?.webContents.send('vault:changed', vaultPath);
+  return true;
 }
 
 // Ensure vault directory exists
@@ -90,7 +97,7 @@ function createWindow() {
     minWidth: 900,
     minHeight: 600,
     frame: false,
-    show: process.env.CORTEX_E2E !== '1',
+    show: !e2e,
     titleBarStyle: 'hidden',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -99,7 +106,7 @@ function createWindow() {
       spellcheck: false,
       enableWebSQL: false,
       v8CacheOptions: 'code',
-      backgroundThrottling: process.env.CORTEX_E2E !== '1', // the hidden e2e window would otherwise stretch renderer timers to ~1 s
+      backgroundThrottling: !e2e, // the hidden e2e window would otherwise stretch renderer timers to ~1 s
     },
     icon: path.join(__dirname, '../src/assets/icon.png'),
     backgroundColor: '#0f0e0c',

@@ -216,3 +216,66 @@ test('getRoot is read on every call so switching vaults takes effect', async (t)
   assert.equal((await fsx.list(other)).success, true);
   assert.equal((await fsx.list(root)).success, false);
 });
+
+// ---- confinement: other spellings of a path inside the vault, and Windows path syntax that points outside it ----
+
+test('forward-slash spellings of paths inside the vault are accepted', async (t) => {
+  const { root, fsx } = setup(t);
+  fs.writeFileSync(join(root, 'a.md'), 'a');
+  fs.mkdirSync(join(root, 'sub'));
+  const slashed = (p) => p.split('\\').join('/');
+  assert.deepEqual(await fsx.read(slashed(join(root, 'a.md'))), { success: true, content: 'a' });
+  assert.equal((await fsx.write(slashed(join(root, 'sub', 'b.md')), 'b')).success, true);
+  assert.equal(fs.readFileSync(join(root, 'sub', 'b.md'), 'utf-8'), 'b');
+  assert.equal((await fsx.list(slashed(root))).success, true);
+});
+
+test('an upper-case spelling of the root is still the root (Windows paths ignore case)', { skip: process.platform !== 'win32' }, async (t) => {
+  const { root, trashed, fsx } = setup(t);
+  fs.writeFileSync(join(root, 'a.md'), 'a');
+  assert.deepEqual(await fsx.read(join(root.toUpperCase(), 'a.md')), { success: true, content: 'a' });
+  assert.match((await fsx.read(root.toUpperCase())).error, /vault root/);
+  assert.equal((await fsx.remove(root.toUpperCase())).success, false);
+  assert.deepEqual(trashed, []);
+});
+
+test('Windows path syntax that leaves the vault is refused by every op', { skip: process.platform !== 'win32' }, async (t) => {
+  const { base, root, trashed, fsx } = setup(t);
+  fs.writeFileSync(join(base, 'out.md'), 'secret');
+  fs.writeFileSync(join(root, 'a.md'), 'a');
+  const drive = root.slice(0, 2);
+  const otherDrive = drive.toUpperCase() === 'Z:' ? 'Y:' : 'Z:';
+  const rows = {
+    'drive-relative (C:out.md)': drive + 'out.md',
+    'UNC path': '\\\\server\\share\\out.md',
+    'extended-length prefix (\\\\?\\)': '\\\\?\\' + join(base, 'out.md'),
+    'extended-length prefix on a path inside the vault': '\\\\?\\' + join(root, 'a.md'),
+    'another drive letter': otherDrive + '\\out.md',
+  };
+  for (const [name, p] of Object.entries(rows)) {
+    const results = await Promise.all([
+      fsx.read(p), fsx.write(p, 'x'), fsx.list(p), fsx.mkdir(p), fsx.remove(p),
+      fsx.rename(join(root, 'a.md'), p), fsx.rename(p, join(root, 'b.md')),
+    ]);
+    for (const r of results) {
+      assert.equal(r.success, false, name);
+      assert.match(r.error, /outside the vault/, name);
+    }
+  }
+  assert.equal(fs.readFileSync(join(base, 'out.md'), 'utf-8'), 'secret');
+  assert.equal(fs.readFileSync(join(root, 'a.md'), 'utf-8'), 'a');
+  assert.deepEqual(trashed, []);
+});
+
+test('remove refuses the vault root however it is spelled', async (t) => {
+  const { root, trashed, fsx } = setup(t);
+  fs.mkdirSync(join(root, 'sub'));
+  const spellings = [root + '/', root + '/.', join(root, 'sub', '..'), root.split('\\').join('/')];
+  for (const p of spellings) {
+    const r = await fsx.remove(p);
+    assert.equal(r.success, false, p);
+    assert.match(r.error, /vault root/, p);
+  }
+  assert.deepEqual(trashed, []);
+  assert.ok(fs.existsSync(join(root, 'sub')));
+});

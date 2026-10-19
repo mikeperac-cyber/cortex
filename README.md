@@ -36,6 +36,15 @@ npm start
 npm run build
 ```
 
+## Testing
+
+```bash
+npm test            # unit tests (node:test); the "test/unit/*.test.js" glob needs Node 21 or newer
+npm run test:e2e    # end-to-end scenarios, one Electron process each
+```
+
+The e2e scenarios run against a throwaway temp vault in a hidden window, never your real vault, and clean up after themselves.
+
 ## Keyboard Shortcuts
 
 | Shortcut | Action |
@@ -60,7 +69,7 @@ Open the Command Palette (`Ctrl+P`) and type:
 ## Data Storage
 
 All data is stored locally in your vault:
-- **Notes** — Markdown files in `~/Documents/CortexVault/`
+- **Notes** — Markdown files in `~/Documents/CortexVault/`; deleting a note or folder moves it to the Recycle Bin
 - **Tasks** — `localStorage`
 - **Flashcards** — `localStorage`
 - **Focus Stats** — `localStorage`

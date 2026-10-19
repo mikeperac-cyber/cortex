@@ -9,7 +9,7 @@ const App = {
   activeTab: null,
   currentView: 'editor',
   sidebarPanel: 'fileExplorer',
-  settings: { theme: 'dark', previewSplit: true, autosave: true },
+  settings: { theme: 'dark', previewSplit: true },
   plugins: [],
   commands: [],
   _domCache: {},
@@ -447,7 +447,9 @@ const App = {
   },
 
   async deleteFile(filePath) {
-    if (!confirm('Delete this file?')) return;
+    const name = filePath.split(/[\\/]/).pop();
+    const contents = (await this.isFolder(filePath)) ? ' (and its contents)' : '';
+    if (!confirm('Move "' + name + '"' + contents + ' to the Recycle Bin?')) return;
     const affected = this.tabsAt(this.normPath(filePath));
     // Flush first so no autosave can fire into the path once it is gone (the result is moot: the file is being deleted)
     await Promise.all(affected.map(t => this.flushTab(t)));

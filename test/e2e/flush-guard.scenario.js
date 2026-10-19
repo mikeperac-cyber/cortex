@@ -44,8 +44,8 @@ module.exports = {
         t.dispatchEvent(new Event('input', { bubbles: true }));
       })()`);
 
-      // (a) the save fails and the user answers "stay": nothing changes
-      await setVault(other);
+      // (a) the save fails and the user answers "stay": nothing changes, and setVault says it did not switch
+      assert.equal(await setVault(other), false, 'a vetoed vault switch must report false');
       for (let i = 0; i < 20; i++) { // give a wrongly-sent vault:changed time to arrive
         assert.equal(await js('App.vaultPath'), vault, 'vault switched although the user chose to stay');
         assert.equal(await js('App.openTabs.length'), 1, 'the dirty tab was closed');
@@ -62,7 +62,7 @@ module.exports = {
 
       // (b) the user accepts the loss: the switch goes ahead and the note is dropped unsaved
       await js('window.__confirmAnswer = true; 0');
-      await setVault(other);
+      assert.equal(await setVault(other), true, 'an accepted vault switch must report true');
       await poll(`App.vaultPath === ${JSON.stringify(other)} && App.openTabs.length === 0`, 'the renderer to follow the vault switch');
       assert.equal(await js('window.cortex.getVaultPath()'), other);
       assert.equal(await js('window.__confirms.length'), 2);

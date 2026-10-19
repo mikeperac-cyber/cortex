@@ -11,3 +11,9 @@ test('other schemes and non-URLs are not safe', () => {
     assert.equal(isSafeExternalUrl(u), false, String(u));
   }
 });
+
+test('only strings are URLs: values that merely stringify to a safe URL are refused', () => {
+  for (const u of [['https://a.b'], { toString: () => 'https://a.b' }, new URL('https://a.b')]) {
+    assert.equal(isSafeExternalUrl(u), false, String(u));
+  }
+});
