@@ -639,7 +639,7 @@ const App = {
     textarea.selectionStart = textarea.selectionEnd = newBefore.length;
     textarea.focus();
     this.hideSlashPalette();
-    this.updatePreview(textarea.value);
+    this.onEditorInput(); // assigning .value fires no `input` event: tab.content, autosave and the preview must hear of it
   },
 
   insertWikilink(name) {
@@ -654,7 +654,7 @@ const App = {
     textarea.selectionStart = textarea.selectionEnd = newBefore.length;
     textarea.focus();
     this.hideWikilinkAutocomplete();
-    this.updatePreview(textarea.value);
+    this.onEditorInput(); // as in insertSlashCommand
   },
 
   async cacheAllNotes() {
@@ -782,6 +782,7 @@ const App = {
       const end = textarea.selectionEnd;
       textarea.value = textarea.value.substring(0, start) + '  ' + textarea.value.substring(end);
       textarea.selectionStart = textarea.selectionEnd = start + 2;
+      this.onEditorInput(); // as in insertSlashCommand
     }
   },
 
