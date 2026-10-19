@@ -473,3 +473,22 @@ test('toggleWrap: wrap, unwrap, empty selection', () => {
 - **Spec coverage:** F1→T2, F2→T1, F3→T1/T2, F4→T1, F5→T1/T10, F6→T8, F7→T8, F8→T5–T8, F9→T3, F10→T4, F11→T10/T11, F12→T12, F13→B4, F14→T1 + B5. No gaps.
 - **Type consistency:** `NoteMeta`, `ParsedLink`, `Edit`, `normalizeStem`, `renderMarkdown`/`toggleTaskByIndex`, `cortex.index.*` names are identical wherever consumed (T6→T7→T8→T9→T11).
 - **Not verified here:** F5's exploit chain (read, not run); the Electron focus behaviour the T12 undo scenario depends on; the `marked` UMD path and its checkbox markup (pinned by T10's tests once installed).
+
+## Build 1 — execution notes (executed 2026-10-20, branch `build-1-core`)
+
+Tasks 1–4 are implemented, reviewed and merged-ready: `npm test` 40/40, `npm run test:e2e` 16 scenarios. Where the code differs from the text above, **the code wins**:
+
+- **Task 4 interface changed (rulings R10/R11):** `cortex.onFlush(cb: () => Promise<boolean | void>)` — resolving `false` vetoes; main's `requestFlush(): Promise<boolean>` resolves `proceed`; `setVault(absPath): Promise<boolean>` (`false` = vetoed or rejected, root unchanged). Renderer sends `app:flush-asking` before its `confirm()` so main's 3 s timeout stops while a person decides.
+- **Tab identity:** one spelling per tab, case-insensitive (`App.normPath`, `findTab`, `tabsAt`); `renameFile` moves open tabs in place; renaming a folder opens nothing; a failed read opens no tab.
+- **Task 1 details:** `remove()` of a missing path succeeds without calling `trash`; every failed `list` carries `files: []`; `search-files` goes through `vaultFs` until Task 8 deletes it.
+- **Test hooks:** `CORTEX_VAULT` / `CORTEX_E2E` are honoured only when `!app.isPackaged`. E2E windows are hidden with `backgroundThrottling: false`; scenarios poll and stub `alert`/`confirm`; `delete-file` is swapped in tests so nothing reaches the real Recycle Bin.
+- **Tooling pitfall:** the Bash tool halves backslashes inside heredocs — use Write/Edit for content containing them.
+
+**Carry-forward for the next builds**
+- Task 7: `setVault` may return `false` without switching — reset the index and re-arm the watcher only after that check.
+- Task 9: rename is rewritten there. Known: `toUpperCase()` folding in tab matching can merge distinct NTFS names (`straße` vs `STRASSE`); `isFolder()` (= `listFiles(p).success`) on a transient error falls through to `openFile(folder)`; folder rename can hit EPERM while the app's own un-awaited directory scans hold the folder (the Task 8 index removes those scans).
+- Task 10: harden `onMenuAction` (passes the raw `IpcRendererEvent` to page callbacks) and note that injected script could call `cortex.onFlush(() => false)` to make the window unclosable; add CSP.
+- Task 12: three programmatic edits (Tab indent, slash commands, wikilink pick) now call `onEditorInput()`; keep that guarantee when they move to `execCommand`.
+- Not fixed (deferred minors): late `app:flushed`/`asking` from a timed-out request can settle the next request (no request id); two `confirmFlush` dialogs could stack; prompt names tabs by basename only; dialog key handler lives on the overlay, not `document`; delete can race a slow `trashItem`; rename is exists-then-rename (not atomic); `dailysync` habit names and `renderTask`-style template strings elsewhere still use raw `innerHTML`.
+- **Open bug (I3, parked):** DailySync "Create as Note" keeps the draft only the *first* time the panel opens in a session — `renderPanel` never removes the previous panel, so `createNote`/`saveNote` read a stale hidden `#dsJournal` afterwards. Root cause is the plugin panel DOM leak (Build 4 "panel lifecycle"); interim one-liner: read `this.panelEl.querySelector('#dsJournal')`.
+- Plan-level: "Open Vault" exists only in the native menu and the window is frameless, so switching vaults may be unreachable from the UI (unverified) — add an in-app command in Build 5.
