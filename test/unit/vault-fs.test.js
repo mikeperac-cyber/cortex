@@ -40,6 +40,21 @@ test('list of a missing folder inside the vault is an empty list', async (t) => 
   assert.deepEqual(await fsx.list(join(root, 'nope')), { success: true, files: [] });
 });
 
+test('every list failure still carries files: []', async (t) => {
+  const { base, root, fsx } = setup(t);
+  fs.writeFileSync(join(root, 'a.md'), 'a');
+  const cases = {
+    'outside the vault': await fsx.list(base),
+    'empty path': await fsx.list(''),
+    'a file listed as a directory (ENOTDIR)': await fsx.list(join(root, 'a.md')),
+  };
+  for (const [name, r] of Object.entries(cases)) {
+    assert.equal(r.success, false, name);
+    assert.equal(typeof r.error, 'string', name);
+    assert.deepEqual(r.files, [], name);
+  }
+});
+
 test('every op rejects paths outside the vault', async (t) => {
   const { base, root, fsx } = setup(t);
   const out = join(base, 'out.md');

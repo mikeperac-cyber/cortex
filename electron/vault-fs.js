@@ -15,13 +15,14 @@ function createVaultFs({ getRoot, trash }) {
     return { abs };
   }
 
-  async function run(p, allowRoot, fn) {
+  // failExtra is merged into every failure result (list uses it to keep `files: []` for callers that skip the success check)
+  async function run(p, allowRoot, fn, failExtra) {
     const { abs, error } = confine(p, allowRoot);
-    if (error) return fail(error);
+    if (error) return fail(error, failExtra);
     try {
       return await fn(abs);
     } catch (err) {
-      return fail(err.message);
+      return fail(err.message, failExtra);
     }
   }
 
@@ -60,7 +61,7 @@ function createVaultFs({ getRoot, trash }) {
         }));
       files.sort((a, b) => (b.isDirectory - a.isDirectory) || a.name.localeCompare(b.name));
       return { success: true, files };
-    }),
+    }, { files: [] }),
 
     mkdir: (p) => run(p, true, async (abs) => {
       await fs.mkdir(abs, { recursive: true });
