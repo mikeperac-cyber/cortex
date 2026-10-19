@@ -24,6 +24,12 @@ class RecallPlugin {
 
   saveCards() { localStorage.setItem('cortex_cards', JSON.stringify(this.cards)); }
 
+  // nextReview is a stored ISO (UTC) timestamp; due means its LOCAL calendar day is today or earlier. A missing or unparseable date counts as due.
+  isDue(card, today) {
+    const when = card.nextReview ? new Date(card.nextReview) : null;
+    return (when && !isNaN(when) ? CortexLib.localDateStr(when) : today) <= today;
+  }
+
   open() { this.renderPanel(); }
 
   close() { if (this.panelEl) this.panelEl.classList.remove('visible'); }
@@ -32,10 +38,7 @@ class RecallPlugin {
     this.close();
     const root = document.getElementById('plugin-root');
     const today = CortexLib.localDateStr();
-    const dueCards = this.cards.filter(c => {
-      const reviewDate = c.nextReview ? c.nextReview.split('T')[0] : today;
-      return reviewDate <= today;
-    });
+    const dueCards = this.cards.filter(c => this.isDue(c, today));
 
     const panel = document.createElement('div');
     panel.className = 'plugin-panel visible';
@@ -115,10 +118,7 @@ class RecallPlugin {
 
   startReview() {
     const today = CortexLib.localDateStr();
-    this.reviewQueue = this.cards.filter(c => {
-      const reviewDate = c.nextReview ? c.nextReview.split('T')[0] : today;
-      return reviewDate <= today;
-    });
+    this.reviewQueue = this.cards.filter(c => this.isDue(c, today));
     if (this.reviewQueue.length === 0) { alert('No cards due for review!'); return; }
     this.showReviewCard();
   }
