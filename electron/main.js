@@ -1,32 +1,20 @@
 const { app, BrowserWindow, ipcMain, dialog, Menu, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
-const fse = require('fs-extra');
+const { createVaultFs } = require('./vault-fs');
+const { isSafeExternalUrl } = require('./security');
 
 let mainWindow;
 let vaultPath = path.join(app.getPath('documents'), 'CortexVault');
-const fileCache = new Map();
-const CACHE_TTL = 30000;
-let watcher = null;
 
-function getCached(key) {
-  const entry = fileCache.get(key);
-  if (entry && Date.now() - entry.time < CACHE_TTL) return entry.value;
-  fileCache.delete(key);
-  return null;
-}
+const vaultFs = createVaultFs({
+  getRoot: () => vaultPath,
+  trash: (absPath) => shell.trashItem(absPath),
+});
 
-function setCache(key, value) {
-  fileCache.set(key, { value, time: Date.now() });
-  if (fileCache.size > 500) fileCache.clear();
-}
-
-function invalidateCache(filePath) {
-  fileCache.delete(filePath);
-  const dir = path.dirname(filePath);
-  for (const key of fileCache.keys()) {
-    if (key.startsWith(dir)) fileCache.delete(key);
-  }
+function setVault(absPath) {
+  vaultPath = path.resolve(absPath);
+  mainWindow?.webContents.send('vault:changed', vaultPath);
 }
 
 // Ensure vault directory exists
@@ -87,9 +75,7 @@ function createWindow() {
       { label: 'Open Vault', click: async () => {
         const result = await dialog.showOpenDialog(mainWindow, { properties: ['openDirectory'], title: 'Select Vault Folder' });
         if (!result.canceled && result.filePaths.length > 0) {
-          vaultPath = result.filePaths[0];
-          fileCache.clear();
-          mainWindow.webContents.send('vault:changed', vaultPath);
+          setVault(result.filePaths[0]);
         }
       }},
       { type: 'separator' },
@@ -107,157 +93,49 @@ function createWindow() {
 // IPC Handlers
 ipcMain.handle('get-vault-path', () => vaultPath);
 
-ipcMain.handle('read-file', (event, filePath) => {
-  const cached = getCached(filePath);
-  if (cached) return { success: true, content: cached };
-  try {
-    const content = fs.readFileSync(filePath, 'utf-8');
-    setCache(filePath, content);
-    return { success: true, content };
-  } catch (err) {
-    return { success: false, error: err.message };
-  }
-});
+ipcMain.handle('read-file', (event, filePath) => vaultFs.read(filePath));
+ipcMain.handle('write-file', (event, filePath, content, opts) => vaultFs.write(filePath, content, opts));
+ipcMain.handle('list-files', (event, dirPath) => vaultFs.list(dirPath));
+ipcMain.handle('create-folder', (event, folderPath) => vaultFs.mkdir(folderPath));
+ipcMain.handle('delete-file', (event, filePath) => vaultFs.remove(filePath));
+ipcMain.handle('rename-file', (event, oldPath, newPath) => vaultFs.rename(oldPath, newPath));
 
-ipcMain.handle('write-file', (event, filePath, content) => {
+// Kept until Task 8 replaces it with the indexed search; goes through vaultFs so it is confined and skips dot-entries.
+ipcMain.handle('search-files', async (event, dirPath, query) => {
   try {
-    fse.ensureDirSync(path.dirname(filePath));
-    fs.writeFileSync(filePath, content, 'utf-8');
-    invalidateCache(filePath);
-    setCache(filePath, content);
-    return { success: true };
-  } catch (err) {
-    return { success: false, error: err.message };
-  }
-});
-
-ipcMain.handle('list-files', (event, dirPath) => {
-  const cached = getCached('list:' + dirPath);
-  if (cached) return { success: true, files: cached };
-  try {
-    if (!fs.existsSync(dirPath)) return { success: true, files: [] };
-    const items = fs.readdirSync(dirPath, { withFileTypes: true });
-    const files = items.map(item => ({
-      name: item.name,
-      isDirectory: item.isDirectory(),
-      path: path.join(dirPath, item.name),
-      ext: item.name.includes('.') ? item.name.split('.').pop() : '',
-    }));
-    files.sort((a, b) => {
-      if (a.isDirectory && !b.isDirectory) return -1;
-      if (!a.isDirectory && b.isDirectory) return 1;
-      return a.name.localeCompare(b.name);
-    });
-    setCache('list:' + dirPath, files);
-    return { success: true, files };
-  } catch (err) {
-    return { success: false, error: err.message, files: [] };
-  }
-});
-
-ipcMain.handle('create-folder', (event, folderPath) => {
-  try {
-    fs.mkdirSync(folderPath, { recursive: true });
-    return { success: true };
-  } catch (err) {
-    return { success: false, error: err.message };
-  }
-});
-
-ipcMain.handle('delete-file', (event, filePath) => {
-  try {
-    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-    invalidateCache(filePath);
-    return { success: true };
-  } catch (err) {
-    return { success: false, error: err.message };
-  }
-});
-
-ipcMain.handle('rename-file', (event, oldPath, newPath) => {
-  try {
-    fs.renameSync(oldPath, newPath);
-    invalidateCache(oldPath);
-    invalidateCache(newPath);
-    return { success: true };
-  } catch (err) {
-    return { success: false, error: err.message };
-  }
-});
-
-ipcMain.handle('search-files', (event, dirPath, query) => {
-  try {
+    const q = query.toLowerCase();
     const results = [];
-    const searchDir = (dir) => {
-      const items = fs.readdirSync(dir, { withFileTypes: true });
-      for (const item of items) {
-        const fullPath = path.join(dir, item.name);
-        if (item.isDirectory()) {
-          searchDir(fullPath);
+    const searchDir = async (dir) => {
+      const listing = await vaultFs.list(dir);
+      if (!listing.success) throw new Error(listing.error);
+      for (const item of listing.files) {
+        if (item.isDirectory) {
+          await searchDir(item.path);
         } else if (item.name.endsWith('.md')) {
-          const cached = getCached(fullPath);
-          const content = cached || fs.readFileSync(fullPath, 'utf-8');
-          if (content.toLowerCase().includes(query.toLowerCase()) ||
-              item.name.toLowerCase().includes(query.toLowerCase())) {
-            results.push({ name: item.name, path: fullPath, preview: content.substring(0, 200) });
+          const file = await vaultFs.read(item.path);
+          if (!file.success) continue;
+          if (file.content.toLowerCase().includes(q) || item.name.toLowerCase().includes(q)) {
+            results.push({ name: item.name, path: item.path, preview: file.content.substring(0, 200) });
           }
         }
       }
     };
-    searchDir(dirPath);
+    await searchDir(dirPath);
     return { success: true, results };
   } catch (err) {
     return { success: false, error: err.message, results: [] };
   }
 });
 
-ipcMain.handle('get-recent-files', (event, dirPath) => {
+ipcMain.handle('open-external', async (event, url) => {
+  if (!isSafeExternalUrl(url)) return { success: false, error: 'URL scheme is not allowed' };
   try {
-    const files = [];
-    const collectFiles = (dir) => {
-      const items = fs.readdirSync(dir, { withFileTypes: true });
-      for (const item of items) {
-        const fullPath = path.join(dir, item.name);
-        if (item.isDirectory()) collectFiles(fullPath);
-        else if (item.name.endsWith('.md')) {
-          const stats = fs.statSync(fullPath);
-          files.push({ name: item.name, path: fullPath, mtime: stats.mtime });
-        }
-      }
-    };
-    collectFiles(dirPath);
-    files.sort((a, b) => new Date(b.mtime) - new Date(a.mtime));
-    return { success: true, files: files.slice(0, 20) };
+    await shell.openExternal(url);
+    return { success: true };
   } catch (err) {
-    return { success: false, error: err.message, files: [] };
+    return { success: false, error: err.message };
   }
 });
-
-ipcMain.handle('batch-read', (event, filePaths) => {
-  const results = {};
-  for (const fp of filePaths) {
-    const cached = getCached(fp);
-    if (cached) { results[fp] = cached; continue; }
-    try {
-      const content = fs.readFileSync(fp, 'utf-8');
-      setCache(fp, content);
-      results[fp] = content;
-    } catch { results[fp] = null; }
-  }
-  return results;
-});
-
-ipcMain.handle('select-vault', async () => {
-  const result = await dialog.showOpenDialog(mainWindow, { properties: ['openDirectory'], title: 'Select Vault Folder' });
-  if (!result.canceled && result.filePaths.length > 0) {
-    vaultPath = result.filePaths[0];
-    fileCache.clear();
-    return { success: true, path: vaultPath };
-  }
-  return { success: false };
-});
-
-ipcMain.handle('open-external', (event, url) => { shell.openExternal(url); });
 
 // Forward window control events
 ipcMain.on('window:minimize', () => mainWindow?.minimize());
@@ -277,3 +155,5 @@ app.whenReady().then(() => {
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
+
+module.exports = { setVault };

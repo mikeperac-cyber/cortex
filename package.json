@@ -5,6 +5,7 @@
   "main": "electron/main.js",
   "scripts": {
     "start": "electron .",
+    "test": "node --test \"test/unit/*.test.js\"",
     "dev": "electron . --dev",
     "build": "electron-builder --win portable",
     "build:installer": "electron-builder --win nsis"
