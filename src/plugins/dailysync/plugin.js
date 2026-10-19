@@ -114,20 +114,29 @@ class DailySyncPlugin {
     const today = CortexLib.localDateStr();
     const content = document.getElementById('dsJournal').value;
     localStorage.setItem('cortex_daily_' + today, content);
+    this.toast('Note saved', 2000);
+  }
+
+  toast(text, ms) {
     const toast = document.createElement('div');
     toast.style.cssText = 'position:fixed;bottom:40px;right:20px;padding:8px 16px;background:var(--success);color:var(--bg-0);border-radius:6px;font-size:12px;z-index:9999;animation:fadeIn 200ms;';
-    toast.textContent = 'Note saved';
+    toast.textContent = text;
     document.body.appendChild(toast);
-    setTimeout(() => toast.remove(), 2000);
+    setTimeout(() => toast.remove(), ms);
   }
 
   async createNote() {
     const today = CortexLib.localDateStr();
     const content = document.getElementById('dsJournal').value;
     const notePath = this.app.vaultPath + '/Daily Notes/' + today + '.md';
-    // overwrite:false: if today's note already exists it is opened as-is, never replaced by the journal text (which stays in the textarea)
+    // overwrite:false: if today's note already exists it is opened as-is, never replaced by the journal text
     const result = await window.cortex.writeFile(notePath, '# ' + today + '\n\n' + content, { overwrite: false });
     if (!result.success && !result.exists) { alert('Could not create the note: ' + result.error); return; }
+    if (result.exists) {
+      // close() below drops the textarea and open() rebuilds it from localStorage, so the draft has to be stored there
+      localStorage.setItem('cortex_daily_' + today, content);
+      this.toast("Today's note already exists: your journal draft was kept", 4000);
+    }
     await this.app.openFile(notePath);
     this.close();
   }
