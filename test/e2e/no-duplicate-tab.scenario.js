@@ -5,9 +5,9 @@ const path = require('node:path');
 const WELCOME = '# Welcome\n\nSeed content that must survive.\n';
 
 // Tab identity must not depend on the path spelling: the file tree hands out native paths (backslashes on Windows)
-// while createFile builds its own. These checks deliberately compare raw strings and counts, never normalised paths.
+// while createFile builds its own, and NTFS ignores letter case ("welcome" is "Welcome"). These checks deliberately compare raw strings and counts, never normalised paths.
 module.exports = {
-  seed: { 'Welcome.md': WELCOME },
+  seed: { 'Welcome.md': WELCOME, 'Other.md': 'other\n' },
 
   async run({ vault, js, sleep }) {
     const poll = async (code, what) => {
@@ -51,5 +51,26 @@ module.exports = {
     await js(`App.closeTab(${JSON.stringify(await treePath('Fresh2.md'))})`);
     assert.deepEqual(await tabNames(), ['Welcome.md'], 'closeTab missed the tab opened by createFile');
     assert.equal(await js('document.querySelectorAll(".editor-tab").length'), 1);
+
+    // 3. Same file under another letter case: "creating" welcome.md while Welcome.md is open is the same file, the same tab
+    await answer('App.createFile()', 'welcome');
+    assert.equal(await js('App.openTabs.length'), 1, 'a differently-cased create opened a second tab on the same file');
+    assert.equal(await js('App.activeTab'), opened, 'the tab was re-spelled');
+    assert.equal(await js('document.querySelectorAll(".editor-tab").length'), 1);
+    assert.deepEqual(fs.readdirSync(vault).filter((n) => n.toLowerCase() === 'welcome.md'), ['Welcome.md'], 'a second spelling of the file appeared on disk');
+
+    // 4. A tab opened under the wrong case is still found by rename (its next save must not recreate the old path)
+    await js(`App.openFile(${JSON.stringify(path.join(vault, 'other.md'))})`);
+    assert.deepEqual(await tabNames(), ['Welcome.md', 'other.md']);
+    await answer(`App.renameFile(${JSON.stringify(await treePath('Other.md'))})`, 'Other2.md');
+    assert.deepEqual(await tabNames(), ['Welcome.md', 'Other2.md'], 'rename missed the tab opened under another case');
+    assert.equal(await js('document.querySelectorAll(".editor-tab").length'), 2);
+
+    // 5. The daily note opened through another spelling of its folder is the same tab
+    await js('App.openDailyNote()');
+    const today = await js('CortexLib.localDateStr()');
+    assert.equal(await js('App.openTabs.length'), 3);
+    await js(`App.openFile(${JSON.stringify(path.join(vault, 'daily notes', today + '.md'))})`);
+    assert.equal(await js('App.openTabs.length'), 3, 'the daily note opened twice under two spellings');
   },
 };

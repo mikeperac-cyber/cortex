@@ -297,11 +297,12 @@ const App = {
 
   async openFile(filePath) {
     filePath = this.normPath(filePath); // tab.path and activeTab always hold the normalized form
-    const isOpen = () => this.openTabs.some(t => t.path === filePath);
-    if (isOpen()) { this.switchTab(filePath); return; }
+    const open = this.findTab(filePath);
+    if (open) { this.switchTab(open.path); return; }
 
     const result = await window.cortex.readFile(filePath);
-    if (isOpen()) { this.switchTab(filePath); return; } // a concurrent open finished while we were reading
+    const raced = this.findTab(filePath);
+    if (raced) { this.switchTab(raced.path); return; } // a concurrent open finished while we were reading
     const name = filePath.split(/[\\/]/).pop();
     const tab = { path: filePath, name, content: result.content || '', modified: false };
     this.openTabs.push(tab);
@@ -313,8 +314,8 @@ const App = {
 
   switchTab(filePath) {
     filePath = this.normPath(filePath);
-    this.activeTab = filePath;
-    const tab = this.openTabs.find(t => t.path === filePath);
+    const tab = this.findTab(filePath);
+    this.activeTab = tab ? tab.path : filePath;
     if (tab) {
       this.$('editorTextarea').value = tab.content;
       this.updatePreview(tab.content);
@@ -350,9 +351,17 @@ const App = {
     });
   },
 
+  // The open tab for a normalized path, ignoring letter case: NTFS treats Welcome.md and welcome.md as one file, so a tab keeps
+  // the single spelling it was opened with and every other spelling resolves to it.
+  findTab(p) {
+    const key = p.toUpperCase();
+    return this.openTabs.find(t => t.path.toUpperCase() === key);
+  },
+
   // Open tabs at `p`: the tab for that file, or every tab under it when `p` is a folder.
   tabsAt(p) {
-    return this.openTabs.filter(t => t.path === p || t.path.startsWith(p + '/'));
+    const key = p.toUpperCase();
+    return this.openTabs.filter(t => { const u = t.path.toUpperCase(); return u === key || u.startsWith(key + '/'); });
   },
 
   // Writes the tab's unsaved text now and drops its pending autosave. false if the write failed (the tab stays modified).
@@ -382,8 +391,7 @@ const App = {
 
   // The tab is only closed once its text is on disk; if that fails it stays open with the error shown.
   async closeTab(filePath) {
-    filePath = this.normPath(filePath);
-    const tab = this.openTabs.find(t => t.path === filePath);
+    const tab = this.findTab(this.normPath(filePath));
     if (!tab) return;
     // A tab whose save fails is kept open (the text is not lost) unless the user chooses to discard it
     if (!(await this.flushTab(tab)) && !confirm('"' + tab.name + '" could not be saved (' + tab.saveError + '). Close it and lose your changes?')) return;
@@ -1128,7 +1136,7 @@ const App = {
         }
       });
       nodes.forEach(node => {
-        const isActive = this.normPath(node.path) === this.activeTab;
+        const isActive = this.normPath(node.path).toUpperCase() === (this.activeTab || '').toUpperCase();
         ctx.beginPath();
         ctx.arc(node.x, node.y, isActive ? 8 : 5, 0, Math.PI * 2);
         ctx.fillStyle = isActive ? '#e8a84c' : '#8f8a7e';
