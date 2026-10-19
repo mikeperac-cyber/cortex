@@ -17,30 +17,40 @@ const vaultFs = createVaultFs({
 
 let flushInFlight = null;
 
-// Asks the renderer to write every unsaved tab. Resolves on its ack, or after 3 s so a hung renderer cannot block quitting.
+// Asks the renderer to write every unsaved tab. Resolves `proceed`: false only when the renderer says the user chose to keep
+// unsaved text (ack false); true on any other ack, with no window, or after 3 s so a hung renderer cannot block quitting.
+// The 3 s clock stops once the renderer reports it is asking the user (`app:flush-asking`): a person may take longer.
 // Concurrent callers (repeated close clicks, a vault switch during a close) share one request.
 function requestFlush() {
   const win = mainWindow;
-  if (!win || win.isDestroyed()) return Promise.resolve();
-  if (!flushInFlight) {
-    flushInFlight = new Promise((resolve) => {
-      const finish = () => {
-        clearTimeout(timer);
-        ipcMain.removeListener('app:flushed', finish);
-        flushInFlight = null;
-        resolve();
-      };
-      const timer = setTimeout(finish, 3000);
-      ipcMain.once('app:flushed', finish);
-      try { win.webContents.send('app:flush'); } catch { finish(); }
-    });
-  }
-  return flushInFlight;
+  if (!win || win.isDestroyed()) return Promise.resolve(true);
+  if (flushInFlight) return flushInFlight;
+  let settle;
+  const request = new Promise((resolve) => { settle = resolve; });
+  flushInFlight = request; // set before anything below can finish() it
+  const finish = (proceed) => {
+    clearTimeout(timer);
+    ipcMain.removeListener('app:flush-asking', onAsking);
+    ipcMain.removeListener('app:flushed', onAck);
+    if (!win.isDestroyed()) win.webContents.removeListener('render-process-gone', onGone);
+    flushInFlight = null;
+    settle(proceed);
+  };
+  const onAck = (event, proceed) => finish(proceed !== false);
+  const onAsking = () => clearTimeout(timer);
+  const onGone = () => finish(true); // a crashed renderer can no longer answer, and must not leave the window unclosable
+  const timer = setTimeout(() => finish(true), 3000);
+  ipcMain.once('app:flush-asking', onAsking);
+  ipcMain.once('app:flushed', onAck);
+  win.webContents.once('render-process-gone', onGone);
+  try { win.webContents.send('app:flush'); } catch { finish(true); }
+  return request;
 }
 
 // The renderer saves before the root moves: afterwards its old absolute paths would be refused as outside the vault.
+// If it reports unsaved text the user wants to keep, the vault stays as it is.
 async function setVault(absPath) {
-  await requestFlush();
+  if (!(await requestFlush())) return;
   vaultPath = path.resolve(absPath);
   mainWindow?.webContents.send('vault:changed', vaultPath);
 }
@@ -105,7 +115,8 @@ function createWindow() {
     e.preventDefault();
     if (closing) return;
     closing = true;
-    requestFlush().then(() => {
+    requestFlush().then((proceed) => {
+      if (!proceed) { closing = false; return; } // the user chose to keep their unsaved text: stay open
       saved = true;
       if (!win.isDestroyed()) win.close();
     });

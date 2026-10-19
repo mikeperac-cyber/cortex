@@ -14,10 +14,17 @@ contextBridge.exposeInMainWorld('cortex', {
   maximize: () => ipcRenderer.send('window:maximize'),
   close: () => ipcRenderer.send('window:close'),
   onVaultChanged: (callback) => ipcRenderer.on('vault:changed', (e, path) => callback(path)),
-  // main asks for a save-everything before closing or switching vault; the ack is sent even if the callback throws
+  // main asks for a save-everything before closing or switching vault. callback(asking) resolves false to veto
+  // ("the user wants to keep unsaved text"); true, undefined or a throw let main proceed, and the ack is always sent.
+  // The callback calls asking() before it blocks on a question to the user, so main's timeout does not cut the user short.
   onFlush: (callback) => ipcRenderer.on('app:flush', async () => {
-    try { await callback(); } catch (err) { console.error('flush failed:', err); }
-    ipcRenderer.send('app:flushed');
+    let proceed = true;
+    try {
+      proceed = (await callback(() => ipcRenderer.send('app:flush-asking'))) !== false;
+    } catch (err) {
+      console.error('flush failed:', err);
+    }
+    ipcRenderer.send('app:flushed', proceed);
   }),
   onMenuAction: (action, callback) => ipcRenderer.on('menu:' + action, callback),
 });

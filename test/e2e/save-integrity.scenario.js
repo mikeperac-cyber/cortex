@@ -18,7 +18,8 @@ module.exports = {
       for (let i = 0; i < 100; i++) { if (await js(code)) return; await sleep(50); }
       throw new Error('Timed out waiting for ' + what);
     };
-    await js('window.alert = () => {}; window.confirm = () => true; 0');
+    // every prompt is recorded: nothing in this scenario fails to save at close/switch time, so none may appear
+    await js('window.alert = () => {}; window.__confirms = []; window.confirm = (m) => { window.__confirms.push(String(m)); return true; }; 0');
     const abs = (rel) => path.join(vault, rel);
     const slash = (rel) => abs(rel).replace(/\\/g, '/');
     const open = (rel) => js(`App.openFile(${JSON.stringify(abs(rel))})`);
@@ -84,6 +85,7 @@ module.exports = {
       assert.equal(await js('document.querySelectorAll(".editor-tab").length'), 0);
       assert.equal(await js('document.getElementById("welcomeDashboard").classList.contains("visible")'), true);
       await poll('document.getElementById("fileTree").textContent.includes("Other.md")', 'the new vault in the file tree');
+      assert.deepEqual(await js('window.__confirms'), [], 'a vault switch with everything saved must not ask the user anything');
     } finally {
       // The app may still be reading the welcome stats from this folder, and Windows then refuses the delete for a moment.
       // Async on purpose: a sync retry blocks this (the app's main) process, so the read could never finish and release the file.

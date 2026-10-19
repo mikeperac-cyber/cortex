@@ -64,8 +64,8 @@ const App = {
   },
 
   setupMenuListeners() {
-    // main saves every tab (onFlush) before it moves the root, so what is open now belongs to the old vault and is already on disk
-    window.cortex.onFlush(() => this.flushSaves());
+    window.cortex.onFlush((asking) => this.confirmFlush(asking));
+    // main only sends this after every tab was saved, or the user agreed to drop the ones that could not be (confirmFlush)
     window.cortex.onVaultChanged((path) => {
       this.vaultPath = path;
       [...this.openTabs].forEach(t => this.removeTab(t));
@@ -369,6 +369,15 @@ const App = {
   async flushSaves() {
     const results = await Promise.all(this.openTabs.map(t => this.flushTab(t)));
     return results.every(Boolean);
+  },
+
+  // Runs when main is about to close the window or switch vault. true = go ahead; false = the user chose to keep editing.
+  // Anything that cannot be saved is named to the user first: it would be lost for good.
+  async confirmFlush(asking) {
+    if (await this.flushSaves()) return true;
+    const names = this.openTabs.filter(t => t.modified).map(t => t.name);
+    asking(); // a native confirm blocks this window: tell main a person is deciding so its timeout does not close us underneath
+    return confirm(names.length + ' note(s) could not be saved: ' + names.join(', ') + '. Discard these changes and continue?');
   },
 
   // The tab is only closed once its text is on disk; if that fails it stays open with the error shown.
@@ -676,23 +685,25 @@ const App = {
   saveFile(tab) {
     const write = async () => {
       const content = tab.content;
-      let result;
-      try {
-        result = await window.cortex.writeFile(tab.path, content);
+      let ok = false;
+      try { // anything going wrong here (a rejected call, a reply that is not a result) is a failed save, never an exception
+        const result = await window.cortex.writeFile(tab.path, content);
+        ok = !!result.success;
+        if (ok) {
+          delete tab.saveError;
+          if (tab.content === content) tab.modified = false;
+        } else {
+          tab.saveError = result.error || 'unknown error';
+        }
       } catch (err) {
-        result = { success: false, error: err.message };
-      }
-      if (result.success) {
-        delete tab.saveError;
-        if (tab.content === content) tab.modified = false;
-      } else {
-        tab.saveError = result.error || 'unknown error';
+        tab.saveError = err.message;
       }
       this.updateTabStyles();
       this.updateSaveError();
-      return !!result.success;
+      return ok;
     };
-    tab.saving = (tab.saving || Promise.resolve()).then(write);
+    // `write` handles its own errors, but the second `write` keeps the queue alive even if a link in it ever rejects
+    tab.saving = (tab.saving || Promise.resolve()).then(write, write);
     return tab.saving;
   },
 
