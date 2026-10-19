@@ -31,7 +31,7 @@ class RecallPlugin {
   renderPanel() {
     this.close();
     const root = document.getElementById('plugin-root');
-    const today = new Date().toISOString().split('T')[0];
+    const today = CortexLib.localDateStr();
     const dueCards = this.cards.filter(c => {
       const reviewDate = c.nextReview ? c.nextReview.split('T')[0] : today;
       return reviewDate <= today;
@@ -114,7 +114,7 @@ class RecallPlugin {
   }
 
   startReview() {
-    const today = new Date().toISOString().split('T')[0];
+    const today = CortexLib.localDateStr();
     this.reviewQueue = this.cards.filter(c => {
       const reviewDate = c.nextReview ? c.nextReview.split('T')[0] : today;
       return reviewDate <= today;

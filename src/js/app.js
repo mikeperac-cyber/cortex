@@ -105,7 +105,7 @@ const App = {
     const wd = this.$('welcomeDashboard');
     if (wd) {
       this.$('btnWelcomeNewNote').addEventListener('click', () => this.createFile());
-      this.$('btnWelcomeDaily').addEventListener('click', () => this.openDailyFromWelcome());
+      this.$('btnWelcomeDaily').addEventListener('click', () => this.openDailyNote());
       this.$('btnWelcomeGraph').addEventListener('click', () => { this.hideWelcome(); this.togglePanel('graph'); });
       this.$('btnWelcomeSearch').addEventListener('click', () => { this.hideWelcome(); this.togglePanel('search'); });
     }
@@ -172,19 +172,16 @@ const App = {
     `;
   },
 
-  async openDailyFromWelcome() {
-    const today = new Date().toISOString().split('T')[0];
-    const notePath = this.app?.vaultPath + '/Daily Notes/' + today + '.md';
-    const exists = await window.cortex.readFile(notePath);
-    if (exists && exists.content) {
-      this.hideWelcome();
-      this.openFile(notePath);
-    } else {
-      const template = '# ' + today + '\n\n## Notes\n\n## Tasks\n- [ ] \n\n## Reflections\n';
-      await window.cortex.writeFile(notePath, template);
-      this.hideWelcome();
-      this.openFile(notePath);
-    }
+  // The only daily-note opener (Welcome button and DailySync). overwrite:false makes create-if-absent atomic: an existing note is opened as-is, never rewritten.
+  async openDailyNote() {
+    const today = CortexLib.localDateStr();
+    const notePath = this.vaultPath + '/Daily Notes/' + today + '.md';
+    const template = '# ' + today + '\n\n## Notes\n\n## Tasks\n- [ ] \n\n## Reflections\n';
+    const result = await window.cortex.writeFile(notePath, template, { overwrite: false });
+    if (!result.success && !result.exists) { alert('Could not open the daily note: ' + result.error); return; }
+    await this.renderFileTree();
+    this.hideWelcome();
+    await this.openFile(notePath);
   },
 
   // ---- Focus Mode ----

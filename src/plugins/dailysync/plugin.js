@@ -95,7 +95,7 @@ class DailySyncPlugin {
   renderHabits() {
     const habits = JSON.parse(localStorage.getItem('cortex_habits') || '[]');
     if (habits.length === 0) return '<div style="color:var(--text-3);font-size:12px;">No habits tracked yet.</div>';
-    const today = new Date().toISOString().split('T')[0];
+    const today = CortexLib.localDateStr();
     return habits.map(h => {
       const done = h.completed && h.completed.includes(today);
       return `<div style="display:flex;align-items:center;gap:8px;padding:4px 0;">
@@ -106,12 +106,12 @@ class DailySyncPlugin {
   }
 
   getTodayNote() {
-    const today = new Date().toISOString().split('T')[0];
+    const today = CortexLib.localDateStr();
     return localStorage.getItem('cortex_daily_' + today) || '';
   }
 
   saveNote() {
-    const today = new Date().toISOString().split('T')[0];
+    const today = CortexLib.localDateStr();
     const content = document.getElementById('dsJournal').value;
     localStorage.setItem('cortex_daily_' + today, content);
     const toast = document.createElement('div');
@@ -121,26 +121,19 @@ class DailySyncPlugin {
     setTimeout(() => toast.remove(), 2000);
   }
 
-  createNote() {
-    const today = new Date().toISOString().split('T')[0];
+  async createNote() {
+    const today = CortexLib.localDateStr();
     const content = document.getElementById('dsJournal').value;
     const notePath = this.app.vaultPath + '/Daily Notes/' + today + '.md';
-    window.cortex.writeFile(notePath, '# ' + today + '\n\n' + content);
-    this.app.openFile(notePath);
+    // overwrite:false: if today's note already exists it is opened as-is, never replaced by the journal text (which stays in the textarea)
+    const result = await window.cortex.writeFile(notePath, '# ' + today + '\n\n' + content, { overwrite: false });
+    if (!result.success && !result.exists) { alert('Could not create the note: ' + result.error); return; }
+    await this.app.openFile(notePath);
     this.close();
   }
 
   async openTodayNote() {
-    const today = new Date().toISOString().split('T')[0];
-    const notePath = this.app.vaultPath + '/Daily Notes/' + today + '.md';
-    const exists = await window.cortex.readFile(notePath);
-    if (exists && exists.content) {
-      this.app.openFile(notePath);
-    } else {
-      const template = '# ' + today + '\n\n## Notes\n\n## Tasks\n- [ ] \n\n## Reflections\n';
-      await window.cortex.writeFile(notePath, template);
-      this.app.openFile(notePath);
-    }
+    await this.app.openDailyNote();
     this.close();
   }
 }
