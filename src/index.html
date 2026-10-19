@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cortex — Second Brain</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..900;1,9..144,300..900&family=JetBrains+Mono:ital,wght@0,400..800;1,400..800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/main.css">
+  <link rel="stylesheet" href="css/plugins.css">
+</head>
+<body>
+  <div id="app">
+    <!-- Title Bar -->
+    <div class="title-bar">
+      <div class="title-bar-left">
+        <div class="app-logo">
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+            <path d="M9 1L16 5V13L9 17L2 13V5L9 1Z" stroke="currentColor" stroke-width="1.5" fill="none"/>
+            <path d="M9 5L13 7.5V12.5L9 15L5 12.5V7.5L9 5Z" fill="currentColor" opacity="0.3"/>
+          </svg>
+          <span>Cortex</span>
+        </div>
+        <div class="title-bar-path" id="titleBarPath">~/CortexVault</div>
+      </div>
+      <div class="title-bar-center">
+        <button class="title-bar-btn" id="btnCommandPalette" title="Command Palette (Ctrl+P)">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="6" cy="6" r="5" stroke="currentColor" stroke-width="1.5"/><path d="M10 10L13 13" stroke="currentColor" stroke-width="1.5"/></svg>
+          <span>Command Palette</span>
+          <kbd>Ctrl P</kbd>
+        </button>
+      </div>
+      <div class="title-bar-right">
+        <button class="title-bar-btn" id="btnFocusMode" title="Focus Mode (F11)">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><rect x="2" y="2" width="10" height="10" rx="2" stroke="currentColor" stroke-width="1.2"/></svg>
+        </button>
+        <button class="title-bar-btn" id="btnLayoutCycle" title="Cycle Layout">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><rect x="2" y="2" width="4" height="10" rx="1" stroke="currentColor" stroke-width="1"/><rect x="8" y="2" width="4" height="10" rx="1" stroke="currentColor" stroke-width="1"/></svg>
+        </button>
+        <button class="title-bar-btn window-btn" id="btnMinimize" title="Minimize">
+          <svg width="10" height="10" viewBox="0 0 10 10"><rect y="4" width="10" height="1" fill="currentColor"/></svg>
+        </button>
+        <button class="title-bar-btn window-btn" id="btnMaximize" title="Maximize">
+          <svg width="10" height="10" viewBox="0 0 10 10"><rect x="1" y="1" width="8" height="8" stroke="currentColor" fill="none"/></svg>
+        </button>
+        <button class="title-bar-btn window-btn" id="btnClose" title="Close">
+          <svg width="10" height="10" viewBox="0 0 10 10"><path d="M1 1L9 9M9 1L1 9" stroke="currentColor"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Main Layout -->
+    <div class="main-layout">
+      <!-- Activity Bar -->
+      <div class="activity-bar">
+        <div class="activity-bar-section">
+          <button class="activity-btn active" data-panel="fileExplorer" title="File Explorer">
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M2 5C2 3.89543 2.89543 3 4 3H8L10 5H16C17.1046 3 18 3.89543 18 5V15C18 16.1046 17.1046 17 16 17H4C2.89543 17 2 16.1046 2 15V5Z" stroke="currentColor" stroke-width="1.2"/></svg>
+          </button>
+          <button class="activity-btn" data-panel="search" title="Search (Ctrl+Shift+F)">
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><circle cx="9" cy="9" r="6" stroke="currentColor" stroke-width="1.2"/><path d="M13.5 13.5L17 17" stroke="currentColor" stroke-width="1.2"/></svg>
+          </button>
+          <button class="activity-btn" data-panel="graph" title="Graph View (Ctrl+G)">
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><circle cx="5" cy="10" r="2.5" stroke="currentColor" stroke-width="1.2"/><circle cx="15" cy="5" r="2.5" stroke="currentColor" stroke-width="1.2"/><circle cx="15" cy="15" r="2.5" stroke="currentColor" stroke-width="1.2"/><path d="M7.5 10L12.5 5M7.5 10L12.5 15" stroke="currentColor" stroke-width="1.2"/></svg>
+          </button>
+          <button class="activity-btn" data-panel="backlinks" title="Backlinks">
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M8 12L12 8M12 8H9M12 8V11" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><circle cx="10" cy="10" r="7" stroke="currentColor" stroke-width="1.2"/></svg>
+          </button>
+          <button class="activity-btn" data-panel="tags" title="Tags">
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M3 3H9L16 10L10 16L3 9V3Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/><circle cx="7" cy="7" r="1.5" fill="currentColor"/></svg>
+          </button>
+          <button class="activity-btn" data-panel="starred" title="Starred Notes">
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M10 2L12.5 7.5L18 8.5L14 12.5L15 18L10 15.5L5 18L6 12.5L2 8.5L7.5 7.5L10 2Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>
+          </button>
+        </div>
+        <div class="activity-bar-section activity-bar-bottom">
+          <button class="activity-btn" id="btnSettings" title="Settings">
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="3" stroke="currentColor" stroke-width="1.2"/><path d="M10 2V4M10 16V18M4.22 4.22L5.64 5.64M14.36 14.36L15.78 15.78M2 10H4M16 10H18M4.22 15.78L5.64 14.36M14.36 5.64L15.78 4.22" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- Side Panel -->
+      <div class="side-panel" id="sidePanel">
+        <div class="side-panel-header" id="sidePanelHeader">
+          <span>File Explorer</span>
+          <div class="side-panel-actions">
+            <button class="icon-btn" id="btnNewFile" title="New File (Ctrl+N)">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 2V12M2 7H12" stroke="currentColor" stroke-width="1.5"/></svg>
+            </button>
+            <button class="icon-btn" id="btnNewFolder" title="New Folder">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 4C2 3.44772 2.44772 3 3 3H5L6 4H11C11.5523 4 12 4.44772 12 5V10C12 10.5523 11.5523 11 11 11H3C2.44772 11 2 10.5523 2 10V4Z" stroke="currentColor" stroke-width="1.2"/><path d="M7 6V9M5.5 7.5H8.5" stroke="currentColor" stroke-width="1.2"/></svg>
+            </button>
+            <button class="icon-btn" id="btnRefreshFiles" title="Refresh">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M12 7C12 9.76142 9.76142 12 7 12C4.23858 12 2 9.76142 2 7C2 4.23858 4.23858 2 7 2C8.65685 2 10.1569 2.77452 11.0863 4.03553" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+            </button>
+          </div>
+        </div>
+        <div class="file-tree" id="fileTree"></div>
+      </div>
+
+      <!-- Editor Area -->
+      <div class="editor-area">
+        <!-- Welcome Dashboard (shown when no tabs open) -->
+        <div class="welcome-dashboard" id="welcomeDashboard">
+          <div class="welcome-content">
+            <div class="welcome-logo">
+              <svg width="64" height="64" viewBox="0 0 18 18" fill="none">
+                <path d="M9 1L16 5V13L9 17L2 13V5L9 1Z" stroke="currentColor" stroke-width="0.8" fill="none"/>
+                <path d="M9 5L13 7.5V12.5L9 15L5 12.5V7.5L9 5Z" fill="currentColor" opacity="0.2"/>
+              </svg>
+            </div>
+            <h1 class="welcome-title">Cortex</h1>
+            <p class="welcome-subtitle">Your thoughts, connected. A second brain for the modern mind.</p>
+            <div class="welcome-stats" id="welcomeStats"></div>
+            <div class="welcome-actions">
+              <button class="welcome-btn" id="btnWelcomeNewNote">
+                <svg width="16" height="16" viewBox="0 0 14 14" fill="none"><path d="M7 2V12M2 7H12" stroke="currentColor" stroke-width="1.5"/></svg>
+                New Note
+              </button>
+              <button class="welcome-btn" id="btnWelcomeDaily">
+                <svg width="16" height="16" viewBox="0 0 14 14" fill="none"><rect x="2" y="3" width="10" height="9" stroke="currentColor" stroke-width="1"/><path d="M2 6H12" stroke="currentColor" stroke-width="1"/></svg>
+                Open Daily Note
+              </button>
+              <button class="welcome-btn" id="btnWelcomeGraph">
+                <svg width="16" height="16" viewBox="0 0 14 14" fill="none"><circle cx="4" cy="7" r="2" stroke="currentColor" stroke-width="1"/><circle cx="10" cy="3" r="2" stroke="currentColor" stroke-width="1"/><circle cx="10" cy="11" r="2" stroke="currentColor" stroke-width="1"/><path d="M6 7L8 3M6 7L8 11" stroke="currentColor" stroke-width="1"/></svg>
+                Graph View
+              </button>
+              <button class="welcome-btn" id="btnWelcomeSearch">
+                <svg width="16" height="16" viewBox="0 0 14 14" fill="none"><circle cx="6" cy="6" r="4" stroke="currentColor" stroke-width="1"/><path d="M9.5 9.5L12 12" stroke="currentColor" stroke-width="1"/></svg>
+                Search Notes
+              </button>
+            </div>
+            <div class="welcome-shortcuts">
+              <div class="shortcut-hint"><kbd>Ctrl</kbd>+<kbd>P</kbd> Command Palette</div>
+              <div class="shortcut-hint"><kbd>Ctrl</kbd>+<kbd>N</kbd> New Note</div>
+              <div class="shortcut-hint"><kbd>Ctrl</kbd>+<kbd>G</kbd> Graph View</div>
+              <div class="shortcut-hint"><kbd>F11</kbd> Focus Mode</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Editor Tabs -->
+        <div class="editor-tabs" id="editorTabs"></div>
+
+        <!-- Editor Content -->
+        <div class="editor-content" id="editorContent">
+          <div class="editor-pane" id="editorPane">
+            <textarea id="editorTextarea" placeholder="Start writing... (Type '/' for commands)"></textarea>
+            <!-- Slash Command Palette -->
+            <div class="slash-palette" id="slashPalette">
+              <div class="slash-items" id="slashItems"></div>
+            </div>
+            <!-- Wikilink Autocomplete -->
+            <div class="wikilink-autocomplete" id="wikilinkAutocomplete">
+              <div class="wikilink-items" id="wikilinkItems"></div>
+            </div>
+          </div>
+          <div class="preview-pane" id="previewPane">
+            <div class="preview-content" id="previewContent"></div>
+          </div>
+          <div class="graph-view" id="graphView">
+            <canvas id="graphCanvas"></canvas>
+            <div class="graph-controls">
+              <button class="graph-btn" id="btnGraphRefresh">Refresh</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Status Bar -->
+        <div class="editor-statusbar">
+          <div class="statusbar-left">
+            <span id="statusbarWords">0 words</span>
+            <span class="statusbar-sep"></span>
+            <span id="statusbarChars">0 chars</span>
+            <span class="statusbar-sep"></span>
+            <span id="statusbarReadingTime">0 min read</span>
+            <span class="statusbar-sep"></span>
+            <span id="statusbarCursor">Ln 1, Col 1</span>
+          </div>
+          <div class="statusbar-right">
+            <span id="statusbarPlugin"></span>
+            <span class="statusbar-sep"></span>
+            <span>Markdown</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Command Palette Modal -->
+  <div class="modal-overlay" id="commandPaletteOverlay">
+    <div class="command-palette">
+      <div class="command-palette-input">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="7" cy="7" r="5" stroke="currentColor" stroke-width="1.5"/><path d="M11 11L14 14" stroke="currentColor" stroke-width="1.5"/></svg>
+        <input type="text" id="commandInput" placeholder="Type a command or search...">
+      </div>
+      <div class="command-results" id="commandResults"></div>
+    </div>
+  </div>
+
+  <!-- Context Menu -->
+  <div class="context-menu" id="contextMenu"></div>
+
+  <!-- Plugin containers -->
+  <div id="plugin-root"></div>
+
+  <script src="plugins/taskflow/plugin.js"></script>
+  <script src="plugins/dailysync/plugin.js"></script>
+  <script src="plugins/recall/plugin.js"></script>
+  <script src="plugins/dataforge/plugin.js"></script>
+  <script src="plugins/focuspulse/plugin.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
