@@ -9,7 +9,7 @@ test('trims; keeps subfolders', () => { assert.equal(n('  spaced  ').name, 'spac
 test('accepts non-ASCII', () => assert.equal(n('Çalışma notları').name, 'Çalışma notları.md'));
 test('folder names use ext ""', () => assert.equal(n('Archive', '').name, 'Archive'));
 test('rejects traversal, illegal chars, reserved names, empty, trailing dot', () => {
-  for (const bad of ['../x', 'a/../b', 'a:b', 'a|b', 'a?b', 'a\b', 'CON', 'nul.md', '', '   ', 'x.']) assert.equal(n(bad, bad === 'x.' ? '' : '.md').ok, false, bad);
+  for (const bad of ['../x', 'a/../b', 'a:b', 'a|b', 'a?b', 'a\\b', 'a\\..\\b', 'CON', 'nul.md', '', '   ', 'x.']) assert.equal(n(bad, bad === 'x.' ? '' : '.md').ok, false, bad);
 });
 test('rejects absolute paths, empty segments, hidden segments, trailing dot with ext', () => {
   for (const bad of ['/abs', 'a//b', 'a/', '.hidden', 'a/.git/b', '.md', 'x.', 'a /b']) assert.equal(n(bad).ok, false, bad);

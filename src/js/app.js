@@ -34,6 +34,9 @@ const App = {
     return this._domCache[id];
   },
 
+  // The one spelling of a path for tab identity (forward slashes): the tree/list give native `\` paths, createFile builds `/` ones.
+  normPath(p) { return p.replace(/\\/g, '/'); },
+
   debounce(key, fn, ms) {
     clearTimeout(this._debounceTimers[key]);
     this._debounceTimers[key] = setTimeout(fn, ms);
@@ -288,6 +291,7 @@ const App = {
   },
 
   async openFile(filePath) {
+    filePath = this.normPath(filePath); // tab.path and activeTab always hold the normalized form
     const existing = this.openTabs.find(t => t.path === filePath);
     if (existing) { this.switchTab(filePath); return; }
 
@@ -302,6 +306,7 @@ const App = {
   },
 
   switchTab(filePath) {
+    filePath = this.normPath(filePath);
     this.activeTab = filePath;
     const tab = this.openTabs.find(t => t.path === filePath);
     if (tab) {
@@ -333,6 +338,7 @@ const App = {
   },
 
   closeTab(filePath) {
+    filePath = this.normPath(filePath);
     const idx = this.openTabs.findIndex(t => t.path === filePath);
     if (idx !== -1) {
       this.openTabs.splice(idx, 1);
@@ -398,7 +404,7 @@ const App = {
     }
     this.closeTab(oldPath);
     await this.renderFileTree();
-    this.openFile(newPath);
+    await this.openFile(newPath);
   },
 
   // ---- Editor with Slash Commands & Wikilinks ----
@@ -1027,7 +1033,7 @@ const App = {
         }
       });
       nodes.forEach(node => {
-        const isActive = node.path === this.activeTab;
+        const isActive = this.normPath(node.path) === this.activeTab;
         ctx.beginPath();
         ctx.arc(node.x, node.y, isActive ? 8 : 5, 0, Math.PI * 2);
         ctx.fillStyle = isActive ? '#e8a84c' : '#8f8a7e';
