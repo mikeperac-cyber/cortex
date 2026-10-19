@@ -5,7 +5,7 @@ const path = require('node:path');
 module.exports = {
   seed: { 'A.md': 'content of A', 'B.md': 'content of B' },
 
-  async run({ vault, js }) {
+  async run({ vault, js, sleep }) {
     await js('window.__alerts = []; window.alert = (m) => window.__alerts.push(String(m)); 0');
     const alerts = () => js('window.__alerts');
     const read = (name) => fs.readFileSync(path.join(vault, name), 'utf8');
@@ -47,5 +47,42 @@ module.exports = {
     await answer('App.createFolder()', '../Escaped');
     assert.equal(fs.existsSync(path.join(vault, '..', 'Escaped')), false, 'folder escaped the vault');
     assert.match((await alerts()).pop(), /dot/);
+
+    // Renaming a FILE keeps its tab: the open one moves in place, an unopened one opens at the new path
+    const alertsBefore = (await alerts()).length;
+    const tabs = () => js('App.openTabs.map(t => t.name)');
+    await js(`App.openFile(${JSON.stringify(path.join(vault, 'C.md'))})`);
+    await rename('C.md', 'D.md');
+    assert.deepEqual(await tabs(), ['D.md'], 'the open tab did not move with the renamed file');
+    assert.ok((await js('App.activeTab')).endsWith('/D.md'));
+    await rename('B.md', 'E.md');
+    assert.deepEqual(await tabs(), ['D.md', 'E.md'], 'renaming an unopened file did not open it');
+    assert.ok((await js('App.activeTab')).endsWith('/E.md'));
+
+    // Windows refuses to rename a folder (EPERM/EBUSY) while a handle is open on it, and the app's own background scans of
+    // the vault (tree listing, note cache) briefly hold one: retry the way fs.rm's maxRetries does, discarding the transient alert.
+    const renameFolder = async (from, to) => {
+      for (let i = 0; i < 20; i++) {
+        const before = (await alerts()).length;
+        await rename(from, to);
+        const now = await alerts();
+        if (now.length === before || !/EPERM|EBUSY/.test(now[now.length - 1])) return;
+        await js('window.__alerts.pop(); 0');
+        await sleep(100);
+      }
+    };
+
+    // Renaming a FOLDER opens nothing (there is no note to show) and raises no alert; a tab inside it follows its file
+    fs.writeFileSync(path.join(vault, 'Archive', 'Inner.md'), 'inner');
+    await js(`App.openFile(${JSON.stringify(path.join(vault, 'Archive', 'Inner.md'))})`);
+    assert.deepEqual(await tabs(), ['D.md', 'E.md', 'Inner.md']);
+    await renameFolder('Archive', 'Archive2');
+    assert.deepEqual(await tabs(), ['D.md', 'E.md', 'Inner.md'], 'renaming a folder opened a tab');
+    assert.ok((await js('App.openTabs[2].path')).endsWith('/Archive2/Inner.md'), 'the tab inside the folder did not follow it');
+    await answer('App.createFolder()', 'Empty');
+    await renameFolder('Empty', 'Empty2');
+    assert.deepEqual(await tabs(), ['D.md', 'E.md', 'Inner.md'], 'renaming an empty folder opened a tab');
+    assert.ok(fs.statSync(path.join(vault, 'Empty2')).isDirectory());
+    assert.equal((await alerts()).length, alertsBefore, 'a valid rename raised an alert');
   },
 };

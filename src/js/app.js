@@ -304,7 +304,9 @@ const App = {
     const raced = this.findTab(filePath);
     if (raced) { this.switchTab(raced.path); return; } // a concurrent open finished while we were reading
     const name = filePath.split(/[\\/]/).pop();
-    const tab = { path: filePath, name, content: result.content || '', modified: false };
+    // Never an empty tab for a failed read: its first autosave would overwrite the real note (the write may well succeed)
+    if (!result.success) { alert('Could not open ' + name + ': ' + result.error); this.showWelcome(); return; } // callers hide the welcome screen first
+    const tab = { path: filePath, name, content: result.content, modified: false };
     this.openTabs.push(tab);
     this.hideWelcome();
     this.switchTab(filePath);
@@ -483,7 +485,13 @@ const App = {
     });
     this.renderTabs();
     await this.renderFileTree();
-    await this.openFile(newPath);
+    // A renamed file is shown (its tab already moved, or it opens); a renamed folder has nothing to open
+    if (!(await this.isFolder(newPath))) await this.openFile(newPath);
+  },
+
+  // Listing succeeds only on a folder (a file fails with ENOTDIR); a missing path counts as an empty folder.
+  async isFolder(p) {
+    return (await window.cortex.listFiles(p)).success;
   },
 
   // ---- Editor with Slash Commands & Wikilinks ----
