@@ -182,10 +182,12 @@ body {
 .editor-tab.active { background: var(--bg-0); color: var(--accent-0); box-shadow: inset 0 2px 0 var(--accent-0); }
 .editor-tab .tab-close {
   width: 16px; height: 16px; display: flex; align-items: center; justify-content: center;
-  border-radius: 3px; opacity: 0; transition: opacity var(--transition-fast);
+  border-radius: 3px; opacity: 0; transition: opacity var(--transition-fast); order: 2;
 }
 .editor-tab:hover .tab-close { opacity: 1; }
 .editor-tab .tab-close:hover { background: var(--bg-4); }
+/* unsaved-changes dot, kept before the close button */
+.editor-tab.modified::after { content: ''; order: 1; width: 6px; height: 6px; border-radius: 50%; background: var(--accent-0); }
 
 .editor-content { flex: 1; display: flex; overflow: hidden; position: relative; contain: layout; }
 .editor-pane { flex: 1; overflow: hidden; display: flex; position: relative; contain: layout; }
@@ -295,6 +297,9 @@ body {
 }
 .statusbar-left, .statusbar-right { display: flex; align-items: center; gap: 8px; }
 .statusbar-sep { width: 1px; height: 10px; background: var(--border-1); }
+.statusbar-left { min-width: 0; }
+#statusbarError { color: var(--danger); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#statusbarError:empty { display: none; }
 
 /* ---- Command Palette ---- */
 .modal-overlay {

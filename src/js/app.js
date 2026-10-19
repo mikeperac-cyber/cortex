@@ -64,7 +64,15 @@ const App = {
   },
 
   setupMenuListeners() {
-    window.cortex.onVaultChanged((path) => { this.vaultPath = path; this.updateTitleBar(); this.renderFileTree(); });
+    // main saves every tab (onFlush) before it moves the root, so what is open now belongs to the old vault and is already on disk
+    window.cortex.onFlush(() => this.flushSaves());
+    window.cortex.onVaultChanged((path) => {
+      this.vaultPath = path;
+      [...this.openTabs].forEach(t => this.removeTab(t));
+      this.showWelcome();
+      this.updateTitleBar();
+      this.renderFileTree();
+    });
     window.cortex.onMenuAction('new-file', () => this.createFile());
     window.cortex.onMenuAction('toggle-preview', () => this.togglePreview());
     window.cortex.onMenuAction('toggle-graph', () => this.togglePanel('graph'));
@@ -289,10 +297,11 @@ const App = {
 
   async openFile(filePath) {
     filePath = this.normPath(filePath); // tab.path and activeTab always hold the normalized form
-    const existing = this.openTabs.find(t => t.path === filePath);
-    if (existing) { this.switchTab(filePath); return; }
+    const isOpen = () => this.openTabs.some(t => t.path === filePath);
+    if (isOpen()) { this.switchTab(filePath); return; }
 
     const result = await window.cortex.readFile(filePath);
+    if (isOpen()) { this.switchTab(filePath); return; } // a concurrent open finished while we were reading
     const name = filePath.split(/[\\/]/).pop();
     const tab = { path: filePath, name, content: result.content || '', modified: false };
     this.openTabs.push(tab);
@@ -319,9 +328,14 @@ const App = {
     const fragment = document.createDocumentFragment();
     this.openTabs.forEach(tab => {
       const el = document.createElement('div');
-      el.className = 'editor-tab' + (tab.path === this.activeTab ? ' active' : '');
-      el.dataset.path = tab.path;
-      el.innerHTML = `<span>${tab.name}</span><button class="tab-close" data-path="${tab.path}"><svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M1 1L9 9M9 1L1 9" stroke="currentColor" stroke-width="1.5"/></svg></button>`;
+      el.className = 'editor-tab' + (tab.path === this.activeTab ? ' active' : '') + (tab.modified ? ' modified' : '');
+      el.dataset.path = tab.path; // tabs are looked up by this, never by the display name
+      const label = document.createElement('span');
+      label.textContent = tab.name;
+      const close = document.createElement('button');
+      close.className = 'tab-close';
+      close.innerHTML = '<svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M1 1L9 9M9 1L1 9" stroke="currentColor" stroke-width="1.5"/></svg>';
+      el.append(label, close);
       fragment.appendChild(el);
     });
     container.innerHTML = '';
@@ -329,29 +343,63 @@ const App = {
   },
 
   updateTabStyles() {
+    const dirty = new Set(this.openTabs.filter(t => t.modified).map(t => t.path));
     document.querySelectorAll('.editor-tab').forEach(el => {
       el.classList.toggle('active', el.dataset.path === this.activeTab);
+      el.classList.toggle('modified', dirty.has(el.dataset.path));
     });
   },
 
-  closeTab(filePath) {
-    filePath = this.normPath(filePath);
-    const idx = this.openTabs.findIndex(t => t.path === filePath);
-    if (idx !== -1) {
-      this.openTabs.splice(idx, 1);
-      if (this.activeTab === filePath) {
-        if (this.openTabs.length > 0) {
-          this.switchTab(this.openTabs[Math.max(0, idx - 1)].path);
-        } else {
-          this.activeTab = null;
-          this.$('editorTextarea').value = '';
-          this.$('previewContent').innerHTML = '';
-          this.updateStatusBar('');
-          this.showWelcome();
-        }
-      }
-      this.renderTabs();
+  // Open tabs at `p`: the tab for that file, or every tab under it when `p` is a folder.
+  tabsAt(p) {
+    return this.openTabs.filter(t => t.path === p || t.path.startsWith(p + '/'));
+  },
+
+  // Writes the tab's unsaved text now and drops its pending autosave. false if the write failed (the tab stays modified).
+  async flushTab(tab) {
+    for (;;) {
+      clearTimeout(this._debounceTimers['save_' + tab.path]);
+      if (!tab.modified) return true;
+      if (!(await this.saveFile(tab))) return false;
+      // typing during the write leaves the tab modified: go round again
     }
+  },
+
+  // Saves every dirty tab; true only if all writes succeeded.
+  async flushSaves() {
+    const results = await Promise.all(this.openTabs.map(t => this.flushTab(t)));
+    return results.every(Boolean);
+  },
+
+  // The tab is only closed once its text is on disk; if that fails it stays open with the error shown.
+  async closeTab(filePath) {
+    filePath = this.normPath(filePath);
+    const tab = this.openTabs.find(t => t.path === filePath);
+    if (!tab) return;
+    // A tab whose save fails is kept open (the text is not lost) unless the user chooses to discard it
+    if (!(await this.flushTab(tab)) && !confirm('"' + tab.name + '" could not be saved (' + tab.saveError + '). Close it and lose your changes?')) return;
+    this.removeTab(tab);
+  },
+
+  // Drops a tab without writing it: for tabs whose file was closed after a flush, moved or deleted.
+  removeTab(tab) {
+    const idx = this.openTabs.indexOf(tab);
+    if (idx === -1) return;
+    clearTimeout(this._debounceTimers['save_' + tab.path]); // no autosave may fire for a tab that is gone
+    this.openTabs.splice(idx, 1);
+    if (this.activeTab === tab.path) {
+      if (this.openTabs.length > 0) {
+        this.switchTab(this.openTabs[Math.max(0, idx - 1)].path);
+      } else {
+        this.activeTab = null;
+        this.$('editorTextarea').value = '';
+        this.$('previewContent').innerHTML = '';
+        this.updateStatusBar('');
+        this.showWelcome();
+      }
+    }
+    this.renderTabs();
+    this.updateSaveError();
   },
 
   async createFile() {
@@ -381,8 +429,12 @@ const App = {
 
   async deleteFile(filePath) {
     if (!confirm('Delete this file?')) return;
-    await window.cortex.deleteFile(filePath);
-    this.closeTab(filePath);
+    const affected = this.tabsAt(this.normPath(filePath));
+    // Flush first so no autosave can fire into the path once it is gone (the result is moot: the file is being deleted)
+    await Promise.all(affected.map(t => this.flushTab(t)));
+    const result = await window.cortex.deleteFile(filePath);
+    if (!result.success) { alert('Could not delete: ' + result.error); return; }
+    affected.forEach(t => this.removeTab(t));
     await this.renderFileTree();
   },
 
@@ -394,12 +446,25 @@ const App = {
     const parsed = CortexLib.normalizeName(input, '');
     if (!parsed.ok) { alert(parsed.error); return; }
     const newPath = segments.join('/') + '/' + parsed.name;
+    const from = this.normPath(oldPath);
+    const affected = this.tabsAt(from); // the file's own tab, or every tab inside a renamed folder
+    // Pending autosaves reach the disk before the move, so none can fire into the old path afterwards
+    const saved = await Promise.all(affected.map(t => this.flushTab(t)));
+    if (saved.includes(false)) { alert('Could not save your changes first: ' + affected.find(t => t.saveError).saveError); return; }
     const result = await window.cortex.renameFile(oldPath, newPath);
     if (!result.success) {
       alert(result.exists ? '"' + parsed.name + '" already exists.' : 'Could not rename: ' + result.error);
       return;
     }
-    this.closeTab(oldPath);
+    // The open tabs move with their files: same text, same position, and any save from here on targets the new path
+    affected.forEach(tab => {
+      clearTimeout(this._debounceTimers['save_' + tab.path]);
+      if (this.activeTab === tab.path) this.activeTab = newPath + tab.path.slice(from.length);
+      tab.path = newPath + tab.path.slice(from.length);
+      tab.name = tab.path.split('/').pop();
+      if (tab.modified) this.debounce('save_' + tab.path, () => this.saveFile(tab), 500); // typed while the rename was in flight
+    });
+    this.renderTabs();
     await this.renderFileTree();
     await this.openFile(newPath);
   },
@@ -438,7 +503,7 @@ const App = {
     const tab = this.openTabs.find(t => t.path === this.activeTab);
     if (tab) {
       tab.content = content;
-      tab.modified = true;
+      if (!tab.modified) { tab.modified = true; this.updateTabStyles(); }
       this.debounce('save_' + tab.path, () => this.saveFile(tab), 500);
     }
     this.debounce('preview', () => this.updatePreview(content), 100);
@@ -605,9 +670,35 @@ const App = {
     return [...new Set(tags)];
   },
 
-  async saveFile(tab) {
-    if (!this.settings.autosave) return;
-    await window.cortex.writeFile(tab.path, tab.content);
+  // Writes the tab's text; resolves true once it is on disk. `modified` means "not yet on disk": it is cleared only after the
+  // write succeeds (and only if nothing was typed meanwhile). A failure leaves it set and shows the error in the status bar.
+  // Writes to one file are queued so an older write can never land after a newer one.
+  saveFile(tab) {
+    const write = async () => {
+      const content = tab.content;
+      let result;
+      try {
+        result = await window.cortex.writeFile(tab.path, content);
+      } catch (err) {
+        result = { success: false, error: err.message };
+      }
+      if (result.success) {
+        delete tab.saveError;
+        if (tab.content === content) tab.modified = false;
+      } else {
+        tab.saveError = result.error || 'unknown error';
+      }
+      this.updateTabStyles();
+      this.updateSaveError();
+      return !!result.success;
+    };
+    tab.saving = (tab.saving || Promise.resolve()).then(write);
+    return tab.saving;
+  },
+
+  updateSaveError() {
+    const failed = this.openTabs.find(t => t.saveError);
+    this.$('statusbarError').textContent = failed ? 'Save failed: ' + failed.saveError : '';
   },
 
   onEditorKeydown(e) {
@@ -675,7 +766,7 @@ const App = {
     if (e.ctrlKey && e.key === 's') {
       e.preventDefault();
       const tab = this.openTabs.find(t => t.path === this.activeTab);
-      if (tab) { this.saveFile(tab); tab.modified = false; }
+      if (tab) this.flushTab(tab);
     }
     if (e.ctrlKey && e.key === 'w') { e.preventDefault(); if (this.activeTab) this.closeTab(this.activeTab); }
     if (e.key === 'F11') { e.preventDefault(); this.toggleFocusMode(); }
@@ -690,13 +781,9 @@ const App = {
 
   onTabClick(e) {
     const closeBtn = e.target.closest('.tab-close');
-    if (closeBtn) { e.stopPropagation(); this.closeTab(closeBtn.dataset.path); return; }
+    if (closeBtn) { e.stopPropagation(); this.closeTab(closeBtn.closest('.editor-tab').dataset.path); return; }
     const tab = e.target.closest('.editor-tab');
-    if (tab) {
-      const path = tab.querySelector('span').textContent;
-      const tabObj = this.openTabs.find(t => t.name === path);
-      if (tabObj) this.switchTab(tabObj.path);
-    }
+    if (tab) this.switchTab(tab.dataset.path);
   },
 
   // ---- Preview ----

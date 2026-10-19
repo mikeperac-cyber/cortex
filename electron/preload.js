@@ -14,5 +14,10 @@ contextBridge.exposeInMainWorld('cortex', {
   maximize: () => ipcRenderer.send('window:maximize'),
   close: () => ipcRenderer.send('window:close'),
   onVaultChanged: (callback) => ipcRenderer.on('vault:changed', (e, path) => callback(path)),
+  // main asks for a save-everything before closing or switching vault; the ack is sent even if the callback throws
+  onFlush: (callback) => ipcRenderer.on('app:flush', async () => {
+    try { await callback(); } catch (err) { console.error('flush failed:', err); }
+    ipcRenderer.send('app:flushed');
+  }),
   onMenuAction: (action, callback) => ipcRenderer.on('menu:' + action, callback),
 });

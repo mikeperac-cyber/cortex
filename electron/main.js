@@ -15,7 +15,32 @@ const vaultFs = createVaultFs({
   trash: (absPath) => shell.trashItem(absPath),
 });
 
-function setVault(absPath) {
+let flushInFlight = null;
+
+// Asks the renderer to write every unsaved tab. Resolves on its ack, or after 3 s so a hung renderer cannot block quitting.
+// Concurrent callers (repeated close clicks, a vault switch during a close) share one request.
+function requestFlush() {
+  const win = mainWindow;
+  if (!win || win.isDestroyed()) return Promise.resolve();
+  if (!flushInFlight) {
+    flushInFlight = new Promise((resolve) => {
+      const finish = () => {
+        clearTimeout(timer);
+        ipcMain.removeListener('app:flushed', finish);
+        flushInFlight = null;
+        resolve();
+      };
+      const timer = setTimeout(finish, 3000);
+      ipcMain.once('app:flushed', finish);
+      try { win.webContents.send('app:flush'); } catch { finish(); }
+    });
+  }
+  return flushInFlight;
+}
+
+// The renderer saves before the root moves: afterwards its old absolute paths would be refused as outside the vault.
+async function setVault(absPath) {
+  await requestFlush();
   vaultPath = path.resolve(absPath);
   mainWindow?.webContents.send('vault:changed', vaultPath);
 }
@@ -64,13 +89,28 @@ function createWindow() {
       spellcheck: false,
       enableWebSQL: false,
       v8CacheOptions: 'code',
+      backgroundThrottling: process.env.CORTEX_E2E !== '1', // the hidden e2e window would otherwise stretch renderer timers to ~1 s
     },
     icon: path.join(__dirname, '../src/assets/icon.png'),
     backgroundColor: '#0f0e0c',
   });
 
   mainWindow.loadFile(path.join(__dirname, '../src/index.html'));
-  mainWindow.on('closed', () => { mainWindow = null; });
+  const win = mainWindow;
+  let closing = false;
+  let saved = false;
+  // Every close path (title-bar button, Alt+F4, app.quit) is held until the renderer has written its unsaved tabs
+  win.on('close', (e) => {
+    if (saved) return;
+    e.preventDefault();
+    if (closing) return;
+    closing = true;
+    requestFlush().then(() => {
+      saved = true;
+      if (!win.isDestroyed()) win.close();
+    });
+  });
+  win.on('closed', () => { mainWindow = null; });
 
   // Setup native menu
   const template = [
@@ -79,7 +119,7 @@ function createWindow() {
       { label: 'Open Vault', click: async () => {
         const result = await dialog.showOpenDialog(mainWindow, { properties: ['openDirectory'], title: 'Select Vault Folder' });
         if (!result.canceled && result.filePaths.length > 0) {
-          setVault(result.filePaths[0]);
+          setVault(result.filePaths[0]).catch((err) => console.error('Open Vault failed:', err));
         }
       }},
       { type: 'separator' },
@@ -160,4 +200,4 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 
-module.exports = { setVault };
+module.exports = { setVault, requestFlush };
