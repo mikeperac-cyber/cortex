@@ -48,9 +48,12 @@
     return fm;
   }
 
+  // Index of the line closing the frontmatter (-1: none, so it is all body)
+  const frontEnd = (lines) => (FRONT_FENCE.test(lines[0]) ? lines.findIndex((l, i) => i > 0 && FRONT_FENCE.test(l)) : -1);
+
   function parseNote(content) {
     const lines = str(content).replace(/^﻿/, '').split(/\r?\n/);
-    const end = FRONT_FENCE.test(lines[0]) ? lines.findIndex((l, i) => i > 0 && FRONT_FENCE.test(l)) : -1; // closing --- (-1: none, so body)
+    const end = frontEnd(lines);
     const frontmatter = end > 0 ? parseFrontmatter(lines.slice(1, end)) : {};
     const body = lines.map((l, i) => (i <= end ? '' : l)); // frontmatter lines stay as empty slots so `line` is the original index
     const masked = maskCode(body);
@@ -78,7 +81,35 @@
     return { frontmatter, title, headings, tags, links };
   }
 
-  const api = { normalizeStem, parseNote };
+  // Points every link whose target is oldStem at newStem, keeping alias, heading, embed and everything else byte for byte.
+  // Links are found exactly as parseNote finds them (masked code and frontmatter skipped); the text replaced is the original's.
+  function rewriteLinks(content, oldStem, newStem) {
+    const src = str(content);
+    const bom = src[0] === '﻿' ? '﻿' : '';
+    const parts = src.slice(bom.length).split(/(\r?\n)/); // even: lines (no \r, as maskCode needs), odd: their line breaks
+    const lines = parts.filter((_, i) => i % 2 === 0);
+    const end = frontEnd(lines);
+    const masked = maskCode(lines.map((l, i) => (i <= end ? '' : l)));
+    const key = normalizeStem(oldStem);
+    let changed = false;
+    lines.forEach((line, k) => {
+      let out = '';
+      let from = 0;
+      for (const m of masked[k].matchAll(LINK)) {
+        const inner = m[1];
+        const cut = inner.search(/[|#]/); // the target ends at the alias or heading, as in parseNote
+        const target = cut < 0 ? inner : inner.slice(0, cut);
+        if (!target.trim() || normalizeStem(target) !== key) continue;
+        const start = m.index + m[0].length - 2 - inner.length + (target.length - target.trimStart().length);
+        out += line.slice(from, start) + newStem;
+        from = start + target.trim().length;
+      }
+      if (from) { parts[2 * k] = out + line.slice(from); changed = true; }
+    });
+    return changed ? bom + parts.join('') : src;
+  }
+
+  const api = { normalizeStem, parseNote, rewriteLinks };
   if (typeof module !== 'undefined') module.exports = api;
   else window.CortexLib = Object.assign(window.CortexLib || {}, api);
 })();

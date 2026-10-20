@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { parseNote, normalizeStem } = require('../../src/lib/note-parse');
+const { parseNote, normalizeStem, rewriteLinks } = require('../../src/lib/note-parse');
 
 const p = parseNote;
 test('wikilink forms', () => {
@@ -43,3 +43,21 @@ test('frontmatter block lists may sit at column 0; a bare key is an empty string
   assert.deepEqual(p('---\naliases:\n- A\n- "B"\nempty:\n---').frontmatter, { aliases: ['A', 'B'], empty: '' }));
 test('frontmatter tags accept a scalar and a leading #', () =>
   assert.deepEqual(p('---\ntags: "#x, y"\n---\n#X').tags, ['x', 'y']));
+
+const r = rewriteLinks;
+test('rewriteLinks: plain, alias, heading and embed forms', () => assert.equal(r('a [[Old]] [[old|x]] [[Old#H]] ![[Old]]', 'Old', 'New'), 'a [[New]] [[New|x]] [[New#H]] ![[New]]'));
+test('rewriteLinks: does not touch longer names', () => assert.equal(r('[[Older]]', 'Old', 'New'), '[[Older]]'));
+test('rewriteLinks: skips fenced and inline code', () => assert.equal(r('~~~\n[[Old]]\n~~~\n`[[Old]]` [[Old]]', 'Old', 'New'), '~~~\n[[Old]]\n~~~\n`[[Old]]` [[New]]'));
+test('rewriteLinks: non-ASCII, case-insensitive match', () => assert.equal(r('[[çalışma]]', 'Çalışma', 'Yeni'), '[[Yeni]]'));
+test('rewriteLinks: CRLF kept; links at start and end of the file; two on a line', () =>
+  assert.equal(r('[[Old]] a\r\nb [[Old]] [[old|y]]\r\nc [[Old]]', 'Old', 'New'), '[[New]] a\r\nb [[New]] [[New|y]]\r\nc [[New]]'));
+test('rewriteLinks: alias and heading together', () => assert.equal(r('[[Old#H|x]]', 'Old', 'New'), '[[New#H|x]]'));
+test('rewriteLinks: identical output when nothing matches', () => {
+  const s = '﻿---\r\nup: 1\r\n---\r\n[[Other]] `x` [[Old Notes]]\n';
+  assert.equal(r(s, 'Old', 'New'), s);
+});
+test('rewriteLinks: frontmatter is skipped as parseNote skips it; CRLF fences hide links; BOM kept', () =>
+  assert.equal(r('﻿---\r\nup: [[Old]]\r\n---\r\n```\r\n[[Old]]\r\n```\r\n[[Old]]', 'Old', 'New'), '﻿---\r\nup: [[Old]]\r\n---\r\n```\r\n[[Old]]\r\n```\r\n[[New]]'));
+test('rewriteLinks: a padded target is replaced in place; [[#H]] and an alias that names the stem are not links to it', () =>
+  assert.equal(r('[[ Old ]] [[#Old]] [[X|Old]] [[X#Old]]', 'old', 'New'), '[[ New ]] [[#Old]] [[X|Old]] [[X#Old]]'));
+test('rewriteLinks: a decomposed spelling matches the precomposed stem', () => assert.equal(r('[[Ça]]', 'Ça', 'B'), '[[B]]'));

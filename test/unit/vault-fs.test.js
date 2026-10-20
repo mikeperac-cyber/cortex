@@ -156,6 +156,43 @@ test('rename allows changing only the case of a name', async (t) => {
   assert.deepEqual((await fsx.list(root)).files.map(f => f.name), ['A.md']);
 });
 
+// Windows refuses a folder rename (EPERM/EBUSY) while a file under it is open, e.g. the index reading it for a moment
+const busy = (code) => Object.assign(new Error(code + ': resource busy'), { code });
+
+test('rename retries a busy (EPERM/EBUSY) rename and then succeeds', async (t) => {
+  const { root, fsx } = setup(t);
+  fs.mkdirSync(join(root, 'd'));
+  const real = fs.promises.rename;
+  let calls = 0;
+  t.mock.method(fs.promises, 'rename', async (...args) => {
+    calls++;
+    if (calls === 1) throw busy('EPERM');
+    if (calls === 2) throw busy('EBUSY');
+    return real(...args);
+  });
+  assert.deepEqual(await fsx.rename(join(root, 'd'), join(root, 'e')), { success: true });
+  assert.equal(calls, 3);
+  assert.ok(fs.statSync(join(root, 'e')).isDirectory());
+});
+
+test('rename gives up after 5 busy attempts with the last error', async (t) => {
+  const { root, fsx } = setup(t);
+  fs.writeFileSync(join(root, 'a.md'), 'a');
+  let calls = 0;
+  t.mock.method(fs.promises, 'rename', async () => { calls++; throw busy('EPERM'); });
+  assert.deepEqual(await fsx.rename(join(root, 'a.md'), join(root, 'b.md')), { success: false, error: 'EPERM: resource busy' });
+  assert.equal(calls, 5);
+});
+
+test('rename fails at once on any other error', async (t) => {
+  const { root, fsx } = setup(t);
+  fs.writeFileSync(join(root, 'a.md'), 'a');
+  let calls = 0;
+  t.mock.method(fs.promises, 'rename', async () => { calls++; throw busy('EACCES'); });
+  assert.deepEqual(await fsx.rename(join(root, 'a.md'), join(root, 'b.md')), { success: false, error: 'EACCES: resource busy' });
+  assert.equal(calls, 1);
+});
+
 test('remove hands the path to trash and does not unlink', async (t) => {
   const { root, trashed, fsx } = setup(t);
   const p = join(root, 'a.md');

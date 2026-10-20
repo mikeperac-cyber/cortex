@@ -82,8 +82,16 @@ function createVaultFs({ getRoot, trash }) {
       const caseOnly = src.abs.toLowerCase() === dst.abs.toLowerCase();
       try {
         if (!caseOnly && (await exists(dst.abs))) return fail('Destination already exists', { exists: true });
-        await fs.rename(src.abs, dst.abs);
-        return { success: true };
+        // Windows refuses a folder rename while a file under it is open (e.g. the index reading it): give it a moment
+        for (let attempt = 1; ; attempt++) {
+          try {
+            await fs.rename(src.abs, dst.abs);
+            return { success: true };
+          } catch (err) {
+            if (attempt >= 5 || (err.code !== 'EPERM' && err.code !== 'EBUSY')) throw err;
+            await new Promise((resolve) => setTimeout(resolve, 50));
+          }
+        }
       } catch (err) {
         return fail(err.message);
       }

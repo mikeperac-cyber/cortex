@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { normalizeName } = require('../../src/lib/names');
+const { normalizeName, pathKey } = require('../../src/lib/names');
 
 const n = (s, e = '.md') => normalizeName(s, e);
 
@@ -15,3 +15,11 @@ test('rejects absolute paths, empty segments, hidden segments, trailing dot with
   for (const bad of ['/abs', 'a//b', 'a/', '.hidden', 'a/.git/b', '.md', 'x.', 'a /b']) assert.equal(n(bad).ok, false, bad);
 });
 test('failure carries a message', () => assert.equal(typeof n('a:b').error, 'string'));
+
+test('pathKey folds case one code point at a time, as NTFS does', () => {
+  assert.equal(pathKey('C:/v/Welcome.md'), pathKey('c:/V/welcome.MD'));
+  assert.equal(pathKey('C:/v/Çalışma.md'), pathKey('C:/v/ÇALIŞMA.md'));
+  assert.notEqual(pathKey('C:/v/straße.md'), pathKey('C:/v/STRASSE.md')); // ß has no one-letter capital: kept, so these stay two files
+  assert.equal(pathKey('ß'), 'ß');
+  assert.equal(pathKey('\u{10428}'), '\u{10400}'); // an astral letter folds as one code point, not two halves
+});

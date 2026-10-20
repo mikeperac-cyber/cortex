@@ -17,7 +17,11 @@
     return { ok: true, name: raw.toLowerCase().endsWith(ext.toLowerCase()) ? raw : raw + ext };
   }
 
-  const api = { normalizeName };
+  // The spelling-insensitive identity of a path, as NTFS compares names: each code point takes its one-letter capital, and keeps
+  // itself when there is none (ß -> "SS" is two letters), so Welcome.md == welcome.md while straße.md != STRASSE.md.
+  const pathKey = (p) => Array.from(p, (ch) => { const up = ch.toUpperCase(); return Array.from(up).length === 1 ? up : ch; }).join('');
+
+  const api = { normalizeName, pathKey };
   if (typeof module !== 'undefined') module.exports = api;
   else window.CortexLib = Object.assign(window.CortexLib || {}, api);
 })();
