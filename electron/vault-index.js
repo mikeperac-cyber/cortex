@@ -40,6 +40,17 @@ async function pool(items, fn) {
   await Promise.all(Array.from({ length: Math.min(POOL, items.length) }, async () => { while (i < items.length) await fn(items[i++]); }));
 }
 
+// The on-disk spelling of abs, rooted at the reset root's own spelling. On any trouble (vanished, outside the real root,
+// reached through a link) the fallback stands: the spelling already stored, else the caller's.
+async function spell(root, abs, stored) {
+  try {
+    const rel = path.relative(root.real, await fs.realpath(abs));
+    if (rel === '') return root.dir;
+    if (rel !== '..' && !rel.startsWith('..' + path.sep) && !path.isAbsolute(rel)) return path.join(root.dir, rel);
+  } catch { /* fall through */ }
+  return stored || abs;
+}
+
 function makeEntry(abs, mtimeMs, content) {
   const parsed = parseNote(content);
   const lines = splitLines(content);
@@ -52,7 +63,7 @@ function makeEntry(abs, mtimeMs, content) {
     key: abs.toLowerCase(),
     content,
     bodyStart,
-    norm: { stem: normalizeStem(stem), title: normalizeStem(parsed.title), heads: normalizeStem(parsed.headings.map((h) => h.text).join('\n')), body: normalizeStem(body) },
+    norm: { stem: normalizeStem(stem), title: normalizeStem(parsed.title), heads: normalizeStem(parsed.headings.map((h) => h.text).join('\n')), body: body.normalize('NFC').toLowerCase() }, // no trim: line k must stay line k of the original
     meta: { path: abs, name, stem, mtimeMs, title: parsed.title, tags: parsed.tags, links: parsed.links, words: (body.match(/\S+/g) || []).length },
   };
 }
@@ -61,7 +72,7 @@ function makeEntry(abs, mtimeMs, content) {
 class VaultIndex {
   constructor() {
     this._store = new Map(); // lowercased absolute path -> entry
-    this._rootKey = null;
+    this._root = null; // { dir, key, real }: the reset root as given, lowercased, and its on-disk (realpath) form
     this._gen = 0; // bumped by every reset; only the newest one may commit
     this._pending = null; // the newest reset while it is in flight
     this._tail = Promise.resolve(); // updates run one at a time, in call order
@@ -75,6 +86,7 @@ class VaultIndex {
       try {
         const base = typeof root === 'string' && root ? path.resolve(root) : null;
         const staged = new Map();
+        const real = base && (await fs.realpath(base).catch(() => base));
         await pool(base ? await listMd(base, alive) : [], async (abs) => {
           if (!alive()) return;
           try {
@@ -84,7 +96,7 @@ class VaultIndex {
         });
         if (!alive()) return; // a newer reset owns the index now
         this._store = staged;
-        this._rootKey = base && base.toLowerCase();
+        this._root = base && { dir: base, key: base.toLowerCase(), real };
         this._v = null;
       } finally {
         if (alive()) this._pending = null;
@@ -109,20 +121,22 @@ class VaultIndex {
 
   async _apply(p) {
     const store = this._store; // a reset that commits mid-flight swaps the store; this call then edits the discarded one
-    const root = this._rootKey;
+    const root = this._root;
     if (typeof p !== 'string' || !p || root === null) return 'ignored';
     const abs = path.resolve(p);
     const key = abs.toLowerCase();
-    const rel = path.relative(root, key);
+    const rel = path.relative(root.key, key);
     if (rel === '..' || rel.startsWith('..' + path.sep) || path.isAbsolute(rel) || rel.split(path.sep).some((s) => s[0] === '.')) return 'ignored';
 
     let st = null;
     try { st = await fs.stat(abs); } catch (err) { if (err.code !== 'ENOENT' && err.code !== 'ENOTDIR') return 'ignored'; }
     if (!st) return this._drop(store, key);
-    if (st.isDirectory()) return this._rescan(store, abs, key);
-    if (!MD.test(abs)) return 'ignored';
+    const isDir = st.isDirectory();
+    if (!isDir && !MD.test(abs)) return 'ignored';
+    const disk = await spell(root, abs, store.get(key)?.meta.path); // stored spelling comes from disk, never from the caller
+    if (isDir) return this._rescan(store, disk, disk.toLowerCase());
     try {
-      return (await this._load(store, abs, key)) || 'ignored';
+      return (await this._load(store, disk, disk.toLowerCase())) || 'ignored';
     } catch (err) {
       return err.code === 'ENOENT' ? this._drop(store, key) : 'ignored'; // vanished mid-read: gone; locked or unreadable: keep what we have
     }

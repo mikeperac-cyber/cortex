@@ -181,6 +181,16 @@ test('search: snippet is one short line around the first body hit; stem-only hit
   assert.match(idx.search('SECOND')[0].snippet, /second line/);
 });
 
+test('search: snippet stays aligned with the original lines after leading blank lines', async (t) => {
+  const { idx } = await indexed(t, {
+    'Fm.md': '---\ntags: [a]\n---\n\nThe Meeting was LONG\nsecond',
+    'Blank.md': '\n\nfirst line\nMeeting Here',
+  });
+  const by = Object.fromEntries(idx.search('meeting').map((r) => [r.stem, r.snippet]));
+  assert.equal(by.Fm, 'The Meeting was LONG');
+  assert.equal(by.Blank, 'Meeting Here');
+});
+
 test('empty vault: all queries return empty results', async (t) => {
   const { root, idx } = await indexed(t);
   assert.deepEqual(idx.notes(), []);
@@ -207,6 +217,53 @@ test('update: added, changed refreshes tags, unchanged is ignored, removed drops
   assert.equal(await idx.update(fresh), 'removed');
   assert.deepEqual(idx.backlinks(target).map((b) => b.stem), ['Src']);
   assert.equal(await idx.update(fresh), 'ignored');
+});
+
+// Windows paths are case-insensitive: the renderer may pass any spelling, the index keeps the one on disk.
+const winOnly = { skip: process.platform !== 'win32' && 'case-insensitive file system only' };
+const sloppy = (p) => p.toLowerCase().replace(/\\/g, '/');
+
+test('update with another spelling of an unchanged note is ignored and keeps the on-disk spelling', winOnly, async (t) => {
+  const { root, idx } = await indexed(t, { 'Sub/Note.md': '# Real' });
+  const before = idx.notes()[0];
+  assert.equal(await idx.update(sloppy(join(root, 'Sub', 'Note.md'))), 'ignored');
+  assert.equal(await idx.update(join(root, 'SUB', 'NOTE.MD')), 'ignored');
+  const [n] = idx.notes();
+  assert.deepEqual([n.path, n.name, n.stem], [join(root, 'Sub', 'Note.md'), 'Note.md', 'Note']);
+  assert.equal(n, before); // not re-parsed
+  assert.equal(idx.resolve('note').stem, 'Note');
+  fs.writeFileSync(join(root, 'Sub', 'Note.md'), '# Real two');
+  assert.equal(await idx.update(sloppy(join(root, 'Sub', 'Note.md'))), 'changed');
+  assert.deepEqual([idx.notes()[0].path, idx.notes()[0].title], [join(root, 'Sub', 'Note.md'), 'Real two']);
+});
+
+test('update(dir) with another spelling keeps the on-disk spelling of every child', winOnly, async (t) => {
+  const { root, idx } = await indexed(t, { 'Top/Sub/Note.md': 'n', 'Top/Other.md': 'o' });
+  put(root, { 'Top/Sub/Fresh.md': 'f' });
+  fs.writeFileSync(join(root, 'Top/Other.md'), 'o2');
+  assert.equal(await idx.update(sloppy(join(root, 'Top'))), 'added');
+  assert.deepEqual(idx.notes().map((n) => n.path), ['Top/Other.md', 'Top/Sub/Fresh.md', 'Top/Sub/Note.md'].map((r) => join(root, r)));
+  assert.equal(await idx.update(sloppy(join(root, 'Top', 'Sub'))), 'ignored');
+  assert.deepEqual(idx.notes().map((n) => n.name), ['Other.md', 'Fresh.md', 'Note.md']);
+});
+
+test('a case-only rename is picked up by an update with either spelling', winOnly, async (t) => {
+  const { root, idx } = await indexed(t, { 'Note.md': 'n', 'Dir/Child.md': 'c' });
+  fs.renameSync(join(root, 'Note.md'), join(root, 'note.md'));
+  assert.equal(await idx.update(join(root, 'Note.md')), 'changed');
+  assert.deepEqual(idx.notes().map((n) => n.name), ['Child.md', 'note.md']);
+  fs.renameSync(join(root, 'Dir'), join(root, 'dir'));
+  assert.equal(await idx.update(join(root, 'DIR')), 'changed');
+  assert.deepEqual(idx.notes().map((n) => n.path), [join(root, 'dir/Child.md'), join(root, 'note.md')]);
+});
+
+test('paths keep the spelling of the root given to reset', winOnly, async (t) => {
+  const { root, idx } = setup(t, { 'Sub/Note.md': 'n' });
+  const given = join(dirname(root), 'V');
+  await idx.reset(given);
+  assert.equal(idx.notes()[0].path, join(given, 'Sub', 'Note.md'));
+  assert.equal(await idx.update(join(root, 'Sub', 'Note.md')), 'ignored');
+  assert.equal(idx.notes()[0].path, join(given, 'Sub', 'Note.md'));
 });
 
 test('update: unknown, non-md, outside the root and dot-segment paths are ignored; never throws', async (t) => {
