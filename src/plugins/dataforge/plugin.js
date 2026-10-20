@@ -88,19 +88,23 @@ class DataForgePlugin {
   }
 
   async runQuery() {
-    const query = document.getElementById('dfQuery').value;
-    const resultsEl = document.getElementById('dfResults');
-    resultsEl.innerHTML = 'Searching...';
+    // this panel's own elements: every open appends a new panel, and the old hidden ones keep the same ids
+    const query = this.panelEl.querySelector('#dfQuery').value;
+    const resultsEl = this.panelEl.querySelector('#dfResults');
+    resultsEl.textContent = 'Searching...';
 
-    const result = await window.cortex.searchFiles(this.app.vaultPath, query.replace(/^(tag:|status:|created:)/, ''));
+    const results = await window.cortex.index.search(query.replace(/^(tag:|status:|created:)/, ''), 50);
     resultsEl.innerHTML = '';
 
-    if (result.results && result.results.length > 0) {
+    if (results.length > 0) {
       const fragment = document.createDocumentFragment();
-      result.results.forEach(r => {
+      results.forEach(r => {
         const el = document.createElement('div');
         el.className = 'file-tree-item';
-        el.innerHTML = '<span class="file-name">' + r.name + '</span>';
+        const name = document.createElement('span');
+        name.className = 'file-name';
+        name.textContent = r.stem;
+        el.append(name);
         el.addEventListener('click', () => { this.app.openFile(r.path); this.close(); });
         fragment.appendChild(el);
       });
@@ -110,30 +114,18 @@ class DataForgePlugin {
     }
   }
 
-  async updateStats() {
-    const statsEl = document.getElementById('dfStats');
-    if (!statsEl) return;
-
-    const result = await window.cortex.listFiles(this.app.vaultPath);
-    let totalFiles = 0;
-    let totalFolders = 0;
-
-    const count = (items) => {
-      items.forEach(i => {
-        if (i.isDirectory) { totalFolders++; window.cortex.listFiles(i.path).then(r => count(r.files)); }
-        else totalFiles++;
-      });
-    };
-    count(result.files);
-
-    statsEl.innerHTML = `
-      <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
-        <span>Total Notes</span><span style="font-weight:600;color:var(--text-0);">${totalFiles}</span>
-      </div>
-      <div style="display:flex;justify-content:space-between;">
-        <span>Total Folders</span><span style="font-weight:600;color:var(--text-0);">${totalFolders}</span>
-      </div>
-    `;
+  // From the app's copy of the vault index (refreshed on every index update)
+  updateStats() {
+    const statsEl = this.panelEl.querySelector('#dfStats');
+    statsEl.replaceChildren(...[['Total Notes', this.app._notes.length], ['Total Tags', this.app._tags.length]].map(([label, count]) => {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;justify-content:space-between;margin-bottom:4px;';
+      const value = document.createElement('span');
+      value.style.cssText = 'font-weight:600;color:var(--text-0);';
+      value.textContent = count;
+      row.append(label, value);
+      return row;
+    }));
   }
 }
 

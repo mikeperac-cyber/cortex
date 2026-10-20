@@ -164,6 +164,12 @@ body {
 .file-tree-item .file-actions button:hover { background: var(--bg-4); color: var(--text-0); }
 .folder-children { padding-left: 16px; }
 
+/* ---- Panel rows (backlinks, tags, search) ---- */
+.panel-row { flex-direction: column; align-items: stretch; gap: 2px; }
+.panel-row .panel-row-detail { font-size: 11px; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.panel-note { padding: 12px; color: var(--text-2); font-size: 13px; }
+.panel-note.panel-heading { padding: 8px 12px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
+
 /* ---- Editor Area ---- */
 .editor-area { flex: 1; display: flex; flex-direction: column; overflow: hidden; background: var(--bg-0); contain: layout; }
 .editor-tabs {

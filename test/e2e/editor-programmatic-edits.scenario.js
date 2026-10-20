@@ -31,7 +31,7 @@ module.exports = {
     };
 
     await js(`App.openFile(${JSON.stringify(note)})`);
-    await poll('App._allNotes.some(n => n.name === "Welcome.md")', 'the note cache (wikilink suggestions)');
+    await poll('App._notes.some(n => n.stem === "Welcome")', 'the index notes (wikilink suggestions)');
 
     // 1. Picking a wikilink suggestion: type "[[Wel", pick Welcome
     await type('[[Wel');

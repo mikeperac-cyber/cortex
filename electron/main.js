@@ -266,33 +266,6 @@ handleIndex('index:search', 'results', [], (query, limit) => index.search(
   Number.isFinite(limit) ? Math.min(200, Math.max(1, Math.floor(limit))) : undefined, // undefined: the index default
 ));
 
-// Kept until Task 8 replaces it with the indexed search; goes through vaultFs so it is confined and skips dot-entries.
-ipcMain.handle('search-files', async (event, dirPath, query) => {
-  try {
-    const q = query.toLowerCase();
-    const results = [];
-    const searchDir = async (dir) => {
-      const listing = await vaultFs.list(dir);
-      if (!listing.success) throw new Error(listing.error);
-      for (const item of listing.files) {
-        if (item.isDirectory) {
-          await searchDir(item.path);
-        } else if (item.name.endsWith('.md')) {
-          const file = await vaultFs.read(item.path);
-          if (!file.success) continue;
-          if (file.content.toLowerCase().includes(q) || item.name.toLowerCase().includes(q)) {
-            results.push({ name: item.name, path: item.path, preview: file.content.substring(0, 200) });
-          }
-        }
-      }
-    };
-    await searchDir(dirPath);
-    return { success: true, results };
-  } catch (err) {
-    return { success: false, error: err.message, results: [] };
-  }
-});
-
 ipcMain.handle('open-external', async (event, url) => {
   if (!isSafeExternalUrl(url)) return { success: false, error: 'URL scheme is not allowed' };
   try {

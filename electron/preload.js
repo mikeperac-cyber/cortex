@@ -37,7 +37,6 @@ contextBridge.exposeInMainWorld('cortex', {
   createFolder: (folderPath) => ipcRenderer.invoke('create-folder', folderPath),
   deleteFile: (filePath) => ipcRenderer.invoke('delete-file', filePath),
   renameFile: (oldPath, newPath) => ipcRenderer.invoke('rename-file', oldPath, newPath),
-  searchFiles: (dirPath, query) => ipcRenderer.invoke('search-files', dirPath, query),
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
   minimize: () => ipcRenderer.send('window:minimize'),
   maximize: () => ipcRenderer.send('window:maximize'),

@@ -17,8 +17,9 @@ const App = {
   _graphCleanup: null,
   _fileTreeAbort: null,
   _searchAbort: null,
-  _allNotes: [],
-  _allTags: [],
+  _notes: [], // NoteMeta[] from the vault index
+  _tags: [], // { tag, count, paths }[]
+  _stemSet: new Set(), // normalized stems of every note
   _starredNotes: new Set(JSON.parse(localStorage.getItem('cortex_starred') || '[]')),
   _focusMode: false,
   _layoutMode: 'split', // split, editor, preview
@@ -50,7 +51,26 @@ const App = {
     this.renderFileTree();
     this.updateTitleBar();
     this.setupMenuListeners();
+    await this.refreshIndex(); // the welcome stats read it
     this.showWelcome();
+  },
+
+  async refreshIndex() {
+    const [notes, tags] = await Promise.all([window.cortex.index.notes(), window.cortex.index.tags()]);
+    this._notes = notes;
+    this._tags = tags;
+    this._stemSet = new Set(notes.map(n => CortexLib.normalizeStem(n.stem)));
+  },
+
+  // Fresh index data for what shows it: the welcome stats and the open panel. Never the editor, the file tree or the search box.
+  async onIndexUpdated() {
+    await this.refreshIndex();
+    if (this.$('welcomeDashboard').classList.contains('visible')) this.updateWelcomeStats();
+    const tree = this.$('fileTree');
+    if (this.sidebarPanel === 'backlinks') this.renderBacklinks(tree);
+    else if (this.sidebarPanel === 'tags') this.renderTagsPanel(tree);
+    else if (this.sidebarPanel === 'search') this.runSearch();
+    if (this.$('graphView').classList.contains('visible')) this.initGraph();
   },
 
   async loadVault() {
@@ -72,7 +92,9 @@ const App = {
       this.showWelcome();
       this.updateTitleBar();
       this.renderFileTree();
+      this.onIndexUpdated();
     });
+    window.cortex.index.onUpdated(() => this.debounce('index', () => this.onIndexUpdated(), 150));
     window.cortex.onMenuAction('new-file', () => this.createFile());
     window.cortex.onMenuAction('toggle-preview', () => this.togglePreview());
     window.cortex.onMenuAction('toggle-graph', () => this.togglePanel('graph'));
@@ -99,6 +121,7 @@ const App = {
     this.$('btnCommandPalette').addEventListener('click', () => this.openCommandPalette());
     this.$('btnFocusMode').addEventListener('click', () => this.toggleFocusMode());
     this.$('btnLayoutCycle').addEventListener('click', () => this.cycleLayout());
+    this.$('btnGraphRefresh').addEventListener('click', () => this.initGraph());
     this.$('editorTabs').addEventListener('click', (e) => this.onTabClick(e));
 
     document.addEventListener('keydown', (e) => this.onGlobalKeydown(e));
@@ -136,48 +159,22 @@ const App = {
     this.$('editorTabs').style.display = '';
   },
 
-  async updateWelcomeStats() {
+  updateWelcomeStats() {
     const statsEl = this.$('welcomeStats');
     if (!statsEl) return;
-
-    const result = await window.cortex.listFiles(this.vaultPath);
-    let totalNotes = 0;
-    let totalTags = 0;
-    let totalStarred = this._starredNotes.size;
-
-    const count = (items) => {
-      items.forEach(i => {
-        if (i.isDirectory) {
-          window.cortex.listFiles(i.path).then(r => count(r.files));
-        } else if (i.name.endsWith('.md')) {
-          totalNotes++;
-          window.cortex.readFile(i.path).then(r => {
-            const tags = this.extractTags(r.content || '');
-            totalTags += tags.length;
-          });
-        }
-      });
-    };
-    count(result.files);
-
-    statsEl.innerHTML = `
-      <div class="welcome-stat">
-        <div class="welcome-stat-value">${totalNotes}</div>
-        <div class="welcome-stat-label">Notes</div>
-      </div>
-      <div class="welcome-stat">
-        <div class="welcome-stat-value">${totalTags}</div>
-        <div class="welcome-stat-label">Tags</div>
-      </div>
-      <div class="welcome-stat">
-        <div class="welcome-stat-value">${totalStarred}</div>
-        <div class="welcome-stat-label">Starred</div>
-      </div>
-      <div class="welcome-stat">
-        <div class="welcome-stat-value">${this.plugins.length}</div>
-        <div class="welcome-stat-label">Plugins</div>
-      </div>
-    `;
+    const stats = [[this._notes.length, 'Notes'], [this._tags.length, 'Tags'], [this._starredNotes.size, 'Starred'], [this.plugins.length, 'Plugins']];
+    statsEl.replaceChildren(...stats.map(([value, label]) => {
+      const stat = document.createElement('div');
+      stat.className = 'welcome-stat';
+      const v = document.createElement('div');
+      v.className = 'welcome-stat-value';
+      v.textContent = value;
+      const l = document.createElement('div');
+      l.className = 'welcome-stat-label';
+      l.textContent = label;
+      stat.append(v, l);
+      return stat;
+    }));
   },
 
   // The only daily-note opener (Welcome button and DailySync). overwrite:false makes create-if-absent atomic: an existing note is opened as-is, never rewritten.
@@ -219,18 +216,20 @@ const App = {
     const tree = this.$('fileTree');
     if (!this.vaultPath) return;
     if (this._fileTreeAbort) this._fileTreeAbort.abort();
-    this._fileTreeAbort = new AbortController();
+    const { signal } = this._fileTreeAbort = new AbortController();
 
     const result = await window.cortex.listFiles(this.vaultPath);
-    if (result.success) {
-      this.files = result.files;
-      tree.innerHTML = '';
-      this.renderFileTreeItems(tree, this.files);
-    }
+    if (!result.success) return;
+    const items = document.createDocumentFragment();
+    await this.renderFileTreeItems(items, result.files); // every folder is listed before callers go on (no scan left holding one open)
+    if (signal.aborted || this.sidebarPanel !== 'fileExplorer') return; // a newer render, or another panel, owns #fileTree now
+    this.files = result.files;
+    tree.replaceChildren(items);
   },
 
-  renderFileTreeItems(container, items, depth = 0) {
+  async renderFileTreeItems(container, items, depth = 0) {
     const fragment = document.createDocumentFragment();
+    const folders = [];
     items.forEach(item => {
       const el = document.createElement('div');
       el.className = 'file-tree-item';
@@ -279,13 +278,14 @@ const App = {
       if (isFolder) {
         const childrenContainer = document.createElement('div');
         childrenContainer.className = 'folder-children';
-        window.cortex.listFiles(item.path).then(result => {
-          if (result.success) this.renderFileTreeItems(childrenContainer, result.files, depth + 1);
-        });
+        folders.push(window.cortex.listFiles(item.path).then(result => {
+          if (result.success) return this.renderFileTreeItems(childrenContainer, result.files, depth + 1);
+        }));
         fragment.appendChild(childrenContainer);
       }
     });
     container.appendChild(fragment);
+    await Promise.all(folders);
   },
 
   toggleStar(filePath) {
@@ -311,7 +311,6 @@ const App = {
     this.hideWelcome();
     this.switchTab(filePath);
     this.renderTabs();
-    this.cacheAllNotes();
   },
 
   switchTab(filePath) {
@@ -324,6 +323,7 @@ const App = {
       this.updateStatusBar(tab.content);
       this.updateTabStyles();
     }
+    if (this.sidebarPanel === 'backlinks') this.renderBacklinks(this.$('fileTree'));
   },
 
   renderTabs() {
@@ -604,9 +604,8 @@ const App = {
     autocomplete.style.left = left + 'px';
     autocomplete.style.top = top + 'px';
 
-    const matches = this._allNotes.filter(n =>
-      n.name.toLowerCase().includes(this._wikilinkQuery.toLowerCase())
-    );
+    const query = CortexLib.normalizeStem(this._wikilinkQuery);
+    const matches = this._notes.filter(n => CortexLib.normalizeStem(n.stem).includes(query));
 
     const container = this.$('wikilinkItems');
     container.innerHTML = '';
@@ -614,9 +613,14 @@ const App = {
     matches.slice(0, 8).forEach((note, i) => {
       const el = document.createElement('div');
       el.className = 'wikilink-item' + (i === 0 ? ' selected' : '');
-      const shortPath = note.path.replace(this.vaultPath, '').replace(/\\/g, '/');
-      el.innerHTML = `<span class="wikilink-name">${note.name}</span><span class="wikilink-path">${shortPath}</span>`;
-      el.addEventListener('click', () => { this.insertWikilink(note.name.replace('.md', '')); this.hideWikilinkAutocomplete(); });
+      const name = document.createElement('span');
+      name.className = 'wikilink-name';
+      name.textContent = note.stem;
+      const shortPath = document.createElement('span');
+      shortPath.className = 'wikilink-path';
+      shortPath.textContent = note.path.replace(this.vaultPath, '').replace(/\\/g, '/');
+      el.append(name, shortPath);
+      el.addEventListener('click', () => { this.insertWikilink(note.stem); this.hideWikilinkAutocomplete(); });
       el.addEventListener('mousedown', (e) => e.preventDefault());
       fragment.appendChild(el);
     });
@@ -657,44 +661,6 @@ const App = {
     textarea.focus();
     this.hideWikilinkAutocomplete();
     this.onEditorInput(); // as in insertSlashCommand
-  },
-
-  async cacheAllNotes() {
-    const result = await window.cortex.listFiles(this.vaultPath);
-    const notes = [];
-    const collect = async (items) => {
-      for (const item of items) {
-        if (item.isDirectory) {
-          const children = await window.cortex.listFiles(item.path);
-          await collect(children.files);
-        } else if (item.name.endsWith('.md')) {
-          const fileResult = await window.cortex.readFile(item.path);
-          notes.push({ name: item.name, path: item.path, content: fileResult.content || '' });
-        }
-      }
-    };
-    await collect(result.files);
-    this._allNotes = notes;
-    this.extractAllTags();
-  },
-
-  extractAllTags() {
-    const tagSet = new Set();
-    this._allNotes.forEach(note => {
-      const tags = this.extractTags(note.content);
-      tags.forEach(t => tagSet.add(t));
-    });
-    this._allTags = Array.from(tagSet).sort();
-  },
-
-  extractTags(content) {
-    const tagRegex = /(?:^|\s)#([a-zA-Z0-9_-]+)/g;
-    const tags = [];
-    let match;
-    while ((match = tagRegex.exec(content)) !== null) {
-      tags.push(match[1]);
-    }
-    return [...new Set(tags)];
   },
 
   // Writes the tab's text; resolves true once it is on disk. `modified` means "not yet on disk": it is cleared only after the
@@ -896,6 +862,7 @@ const App = {
       this.$('sidePanel').classList.add('collapsed');
       this.sidebarPanel = null;
       document.querySelectorAll('.activity-btn').forEach(b => b.classList.remove('active'));
+      this.hideGraphView();
     } else {
       this.$('sidePanel').classList.remove('collapsed');
       this.sidebarPanel = panel;
@@ -911,6 +878,7 @@ const App = {
     const tree = this.$('fileTree');
     const titles = { fileExplorer: 'File Explorer', search: 'Search', graph: 'Graph View', backlinks: 'Backlinks', tags: 'Tags', starred: 'Starred' };
     header.querySelector('span').textContent = titles[panel] || panel;
+    if (panel !== 'graph') this.hideGraphView(); // the editor and preview come back
 
     if (panel === 'fileExplorer') {
       tree.style.display = '';
@@ -935,51 +903,77 @@ const App = {
 
   renderSearchPanel(container) {
     container.innerHTML = '<div style="padding:12px;"><input type="text" id="searchInput" placeholder="Search notes..." style="width:100%;padding:8px 12px;background:var(--bg-3);border:1px solid var(--border-1);border-radius:6px;color:var(--text-0);font-size:13px;"><div id="searchResults" style="margin-top:12px;"></div></div>';
-    const input = container.querySelector('#searchInput');
-    input.addEventListener('input', () => {
-      this.debounce('search', async () => {
-        const query = input.value;
-        if (query.length < 2) return;
-        if (this._searchAbort) this._searchAbort.abort();
-        this._searchAbort = new AbortController();
-
-        const results = await window.cortex.searchFiles(this.vaultPath, query);
-        const resultContainer = container.querySelector('#searchResults');
-        resultContainer.innerHTML = '';
-        if (results.results) {
-          results.results.forEach(r => {
-            const el = document.createElement('div');
-            el.className = 'file-tree-item';
-            el.innerHTML = '<span class="file-name">' + r.name + '</span>';
-            el.addEventListener('click', () => { this.hideWelcome(); this.openFile(r.path); });
-            resultContainer.appendChild(el);
-          });
-        }
-      }, 300);
-    });
+    container.querySelector('#searchInput').addEventListener('input', () => this.debounce('search', () => this.runSearch(), 300));
   },
 
-  renderTagsPanel(container) {
-    container.innerHTML = '';
-    if (this._allTags.length === 0) {
-      container.innerHTML = '<div class="empty-state"><p>No tags found. Add #tags to your notes.</p></div>';
-      return;
+  // Runs the search box's query against the index; only the newest query may fill the results.
+  async runSearch() {
+    const input = document.getElementById('searchInput'); // not this.$: the panel recreates these on every render
+    const list = document.getElementById('searchResults');
+    if (!input || !list) return;
+    if (this._searchAbort) this._searchAbort.abort();
+    const { signal } = this._searchAbort = new AbortController();
+    const query = input.value.trim();
+    if (query.length < 2) { list.replaceChildren(); return; }
+    const results = await window.cortex.index.search(query, 50);
+    if (signal.aborted) return;
+    list.replaceChildren(...(results.length
+      ? results.map(r => this.panelRow(r.stem, r.snippet, () => { this.hideWelcome(); this.openFile(r.path); }))
+      : [this.panelNote('No results found.')]));
+  },
+
+  // A clickable panel row: a note's stem with a line of its text under it. User text, so textContent only.
+  panelRow(title, detail, onClick) {
+    const el = document.createElement('div');
+    el.className = 'file-tree-item panel-row';
+    const name = document.createElement('span');
+    name.className = 'file-name';
+    name.textContent = title;
+    el.append(name);
+    if (detail) {
+      const line = document.createElement('span');
+      line.className = 'panel-row-detail';
+      line.textContent = detail;
+      el.append(line);
     }
+    el.addEventListener('click', onClick);
+    return el;
+  },
+
+  panelNote(text) {
+    const el = document.createElement('div');
+    el.className = 'panel-note';
+    el.textContent = text;
+    return el;
+  },
+
+  // Each tag expands to its notes; tags left open stay open when the index refreshes the panel.
+  renderTagsPanel(container) {
+    if (this._tags.length === 0) { container.replaceChildren(this.panelNote('No tags found. Add #tags to your notes.')); return; }
+    const open = new Set([...container.querySelectorAll('.tag-item.expanded')].map(el => el.dataset.tag));
     const fragment = document.createDocumentFragment();
-    this._allTags.forEach(tag => {
+    this._tags.forEach(t => {
       const el = document.createElement('div');
-      el.className = 'file-tree-item';
-      el.innerHTML = '<span class="file-icon" style="color:var(--accent-0);">#</span><span class="file-name">' + tag + '</span>';
-      el.addEventListener('click', () => {
-        const results = this._allNotes.filter(n => this.extractTags(n.content).includes(tag));
-        if (results.length > 0) {
-          this.hideWelcome();
-          this.openFile(results[0].path);
-        }
-      });
-      fragment.appendChild(el);
+      el.className = 'file-tree-item tag-item';
+      el.dataset.tag = t.tag;
+      const name = document.createElement('span');
+      name.className = 'file-name';
+      name.textContent = '#' + t.tag + ' (' + t.count + ')';
+      el.append(name);
+      const notes = document.createElement('div');
+      notes.className = 'folder-children';
+      notes.append(...t.paths.map(p => {
+        const row = this.panelRow(p.split(/[\\/]/).pop().replace(/\.md$/i, ''), null, () => { this.hideWelcome(); this.openFile(p); });
+        row.classList.add('tag-note');
+        return row;
+      }));
+      const expanded = open.has(t.tag);
+      el.classList.toggle('expanded', expanded);
+      notes.hidden = !expanded;
+      el.addEventListener('click', () => { notes.hidden = !el.classList.toggle('expanded'); });
+      fragment.append(el, notes);
     });
-    container.appendChild(fragment);
+    container.replaceChildren(fragment);
   },
 
   renderStarredPanel(container) {
@@ -1001,28 +995,16 @@ const App = {
     container.appendChild(fragment);
   },
 
+  // The notes linking to the active one, each with the line that links. Pass the tab path as is: the index resolves it.
   async renderBacklinks(container) {
-    container.innerHTML = '<div style="padding:12px;color:var(--text-2);font-size:13px;">Select a note to see backlinks.</div>';
-    if (!this.activeTab) return;
-
-    const activeName = this.activeTab.split(/[\\/]/).pop().replace('.md', '');
-    const results = await window.cortex.searchFiles(this.vaultPath, activeName);
-    container.innerHTML = '';
-    if (results.results && results.results.length > 0) {
-      const header = document.createElement('div');
-      header.style.cssText = 'padding:8px 12px;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-2);font-weight:600;';
-      header.textContent = results.results.length + ' backlinks found';
-      container.appendChild(header);
-      results.results.forEach(r => {
-        const el = document.createElement('div');
-        el.className = 'file-tree-item';
-        el.innerHTML = '<span class="file-name">' + r.name + '</span>';
-        el.addEventListener('click', () => { this.hideWelcome(); this.openFile(r.path); });
-        container.appendChild(el);
-      });
-    } else {
-      container.innerHTML = '<div style="padding:12px;color:var(--text-2);font-size:13px;">No backlinks found.</div>';
-    }
+    const tab = this.activeTab;
+    if (!tab) { container.replaceChildren(this.panelNote('Select a note to see backlinks.')); return; }
+    const links = await window.cortex.index.backlinks(tab);
+    if (this.sidebarPanel !== 'backlinks' || this.activeTab !== tab) return; // the user moved on while we asked
+    if (!links.length) { container.replaceChildren(this.panelNote('No backlinks found.')); return; }
+    const header = this.panelNote(links.length + (links.length === 1 ? ' backlink' : ' backlinks'));
+    header.classList.add('panel-heading');
+    container.replaceChildren(header, ...links.map(b => this.panelRow(b.stem, b.text.trim(), () => { this.hideWelcome(); this.openFile(b.path); })));
   },
 
   // ---- Graph View ----
@@ -1038,66 +1020,35 @@ const App = {
     this.$('graphView').classList.remove('visible');
     this.$('editorPane').style.display = '';
     this.$('previewPane').style.display = '';
-    if (this._graphCleanup) { this._graphCleanup(); this._graphCleanup = null; }
+    if (this._graphCleanup) { this._graphCleanup.abort(); this._graphCleanup = null; }
   },
 
+  // Lays the graph out afresh. Aborting _graphCleanup stops its animation loop and removes its click handler, so a re-open,
+  // Refresh, resize or index update never leaves a second loop or handler behind.
   async initGraph() {
+    if (this._graphCleanup) this._graphCleanup.abort();
+    const { signal } = this._graphCleanup = new AbortController();
+    const graph = await window.cortex.index.graph();
+    if (signal.aborted) return; // hidden or restarted while we waited
+
     const canvas = this.$('graphCanvas');
     const ctx = canvas.getContext('2d');
     const container = this.$('graphView');
-
-    canvas.width = container.clientWidth;
-    canvas.height = container.clientHeight;
-
-    const result = await window.cortex.listFiles(this.vaultPath);
-    const nodes = [];
-    const edges = [];
-
-    const processFile = async (item) => {
-      if (item.isDirectory) {
-        const children = await window.cortex.listFiles(item.path);
-        for (const child of children.files) await processFile(child);
-      } else if (item.name.endsWith('.md')) {
-        const fileResult = await window.cortex.readFile(item.path);
-        const content = fileResult.content || '';
-        nodes.push({ name: item.name, path: item.path, content });
-        const linkRegex = /\[\[([^\]]+)\]\]/g;
-        let match;
-        while ((match = linkRegex.exec(content)) !== null) {
-          edges.push({ source: item.name, target: match[1] });
-        }
-      }
-    };
-
-    for (const item of result.files) await processFile(item);
-
-    const width = canvas.width;
-    const height = canvas.height;
+    const width = canvas.width = container.clientWidth;
+    const height = canvas.height = container.clientHeight;
     const centerX = width / 2;
     const centerY = height / 2;
     const radius = Math.min(width, height) * 0.35;
 
-    nodes.forEach((node, i) => {
-      const angle = (i / nodes.length) * Math.PI * 2;
-      node.x = centerX + Math.cos(angle) * radius;
-      node.y = centerY + Math.sin(angle) * radius;
-      node.vx = 0;
-      node.vy = 0;
+    const nodes = graph.nodes.map((n, i) => {
+      const angle = (i / graph.nodes.length) * Math.PI * 2;
+      return { path: n.id, label: n.label, x: centerX + Math.cos(angle) * radius, y: centerY + Math.sin(angle) * radius, vx: 0, vy: 0 };
     });
+    const byPath = new Map(nodes.map(n => [n.path, n]));
+    const edges = graph.edges.map(e => [byPath.get(e.source), byPath.get(e.target)]).filter(([s, t]) => s && t);
 
-    const nodeMap = {};
-    nodes.forEach(n => { nodeMap[n.name] = n; });
-
-    edges.forEach(e => {
-      const source = nodeMap[e.source];
-      const target = nodeMap[e.target];
-      if (source && target) {
-        source.links = source.links || [];
-        source.links.push(target);
-      }
-    });
-
-    function simulate() {
+    // One step of the forces; returns the fastest node's speed
+    const simulate = () => {
       for (let i = 0; i < nodes.length; i++) {
         for (let j = i + 1; j < nodes.length; j++) {
           const dx = nodes[j].x - nodes[i].x;
@@ -1110,41 +1061,38 @@ const App = {
           nodes[j].vy += (dy / dist) * force;
         }
       }
+      edges.forEach(([node, target]) => {
+        const dx = target.x - node.x;
+        const dy = target.y - node.y;
+        const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+        const force = (dist - 120) * 0.01;
+        node.vx += (dx / dist) * force;
+        node.vy += (dy / dist) * force;
+        target.vx -= (dx / dist) * force;
+        target.vy -= (dy / dist) * force;
+      });
+      let max = 0;
       nodes.forEach(node => {
-        if (node.links) {
-          node.links.forEach(target => {
-            const dx = target.x - node.x;
-            const dy = target.y - node.y;
-            const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-            const force = (dist - 120) * 0.01;
-            node.vx += (dx / dist) * force;
-            node.vy += (dy / dist) * force;
-            target.vx -= (dx / dist) * force;
-            target.vy -= (dy / dist) * force;
-          });
-        }
         node.vx += (centerX - node.x) * 0.001;
         node.vy += (centerY - node.y) * 0.001;
         node.vx *= 0.85;
         node.vy *= 0.85;
         node.x += node.vx;
         node.y += node.vy;
+        max = Math.max(max, Math.hypot(node.vx, node.vy));
       });
-    }
+      return max;
+    };
 
-    function draw() {
+    const draw = () => {
       ctx.clearRect(0, 0, width, height);
       ctx.strokeStyle = 'rgba(232, 168, 76, 0.2)';
       ctx.lineWidth = 1;
-      nodes.forEach(node => {
-        if (node.links) {
-          node.links.forEach(target => {
-            ctx.beginPath();
-            ctx.moveTo(node.x, node.y);
-            ctx.lineTo(target.x, target.y);
-            ctx.stroke();
-          });
-        }
+      edges.forEach(([node, target]) => {
+        ctx.beginPath();
+        ctx.moveTo(node.x, node.y);
+        ctx.lineTo(target.x, target.y);
+        ctx.stroke();
       });
       nodes.forEach(node => {
         const isActive = this.normPath(node.path).toUpperCase() === (this.activeTab || '').toUpperCase();
@@ -1155,38 +1103,32 @@ const App = {
         ctx.fillStyle = isActive ? '#e8a84c' : '#8f8a7e';
         ctx.font = (isActive ? '600 ' : '') + '11px "JetBrains Mono", monospace';
         ctx.textAlign = 'center';
-        ctx.fillText(node.name.replace('.md', ''), node.x, node.y - 12);
+        ctx.fillText(node.label, node.x, node.y - 12);
       });
       ctx.fillStyle = '#5c584f';
       ctx.font = '12px "JetBrains Mono", monospace';
       ctx.textAlign = 'left';
       ctx.fillText(nodes.length + ' nodes', 16, 24);
-    }
+    };
 
-    let running = true;
-    this._graphCleanup = () => { running = false; };
-
-    function animate() {
-      if (!running) return;
-      simulate();
+    const animate = () => {
+      if (signal.aborted) return;
+      const speed = simulate();
       draw();
-      requestAnimationFrame(animate);
-    }
+      if (speed >= 0.05) requestAnimationFrame(animate); // settled: Refresh, a resize or an index update starts it again
+    };
     animate();
 
     canvas.addEventListener('click', (e) => {
       const rect = canvas.getBoundingClientRect();
       const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
-      nodes.forEach(node => {
-        const dx = node.x - x;
-        const dy = node.y - y;
-        if (Math.sqrt(dx * dx + dy * dy) < 12) {
-          this.openFile(node.path);
-          this.hideGraphView();
-        }
-      });
-    });
+      const hit = nodes.find(node => Math.hypot(node.x - x, node.y - y) < 12);
+      if (hit) {
+        this.openFile(hit.path);
+        this.hideGraphView();
+      }
+    }, { signal });
   },
 
   // ---- Command Palette ----
