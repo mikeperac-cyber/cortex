@@ -95,6 +95,7 @@ const App = {
       this.onIndexUpdated();
     });
     window.cortex.index.onUpdated(() => this.debounce('index', () => this.onIndexUpdated(), 150));
+    window.cortex.index.onFileChanged((path) => this.onExternalChange(path));
     window.cortex.onMenuAction('new-file', () => this.createFile());
     window.cortex.onMenuAction('toggle-preview', () => this.togglePreview());
     window.cortex.onMenuAction('toggle-graph', () => this.togglePanel('graph'));
@@ -306,7 +307,7 @@ const App = {
     const name = filePath.split(/[\\/]/).pop();
     // Never an empty tab for a failed read: its first autosave would overwrite the real note (the write may well succeed)
     if (!result.success) { alert('Could not open ' + name + ': ' + result.error); this.showWelcome(); return; } // callers hide the welcome screen first
-    const tab = { path: filePath, name, content: result.content, modified: false };
+    const tab = { path: filePath, name, content: result.content, saved: result.content, modified: false }; // saved: the text last known on disk
     this.openTabs.push(tab);
     this.hideWelcome();
     this.switchTab(filePath);
@@ -353,17 +354,17 @@ const App = {
     });
   },
 
-  // The open tab for a normalized path, ignoring letter case: NTFS treats Welcome.md and welcome.md as one file, so a tab keeps
-  // the single spelling it was opened with and every other spelling resolves to it.
+  // The open tab for a normalized path, ignoring letter case as NTFS does (pathKey): Welcome.md and welcome.md are one file, so
+  // a tab keeps the single spelling it was opened with and every other spelling resolves to it.
   findTab(p) {
-    const key = p.toUpperCase();
-    return this.openTabs.find(t => t.path.toUpperCase() === key);
+    const key = CortexLib.pathKey(p);
+    return this.openTabs.find(t => CortexLib.pathKey(t.path) === key);
   },
 
   // Open tabs at `p`: the tab for that file, or every tab under it when `p` is a folder.
   tabsAt(p) {
-    const key = p.toUpperCase();
-    return this.openTabs.filter(t => { const u = t.path.toUpperCase(); return u === key || u.startsWith(key + '/'); });
+    const key = CortexLib.pathKey(p);
+    return this.openTabs.filter(t => { const k = CortexLib.pathKey(t.path); return k === key || k.startsWith(key + '/'); });
   },
 
   // Writes the tab's unsaved text now and drops its pending autosave. false if the write failed (the tab stays modified).
@@ -468,10 +469,13 @@ const App = {
     if (!parsed.ok) { alert(parsed.error); return; }
     const newPath = segments.join('/') + '/' + parsed.name;
     const from = this.normPath(oldPath);
+    const folder = await this.isFolder(oldPath); // decided before the move: listing the new path afterwards can fail for a moment
     const affected = this.tabsAt(from); // the file's own tab, or every tab inside a renamed folder
-    // Pending autosaves reach the disk before the move, so none can fire into the old path afterwards
-    const saved = await Promise.all(affected.map(t => this.flushTab(t)));
-    if (saved.includes(false)) { alert('Could not save your changes first: ' + affected.find(t => t.saveError).saveError); return; }
+    // Pending autosaves reach the disk before the move, so none can fire into the old path afterwards. A note rename may rewrite
+    // links in OTHER notes too: then every tab is saved first, or its stale text would later autosave over the rewrite.
+    const relinks = /\.md$/i.test(oldName) && /\.md$/i.test(parsed.name);
+    const saved = relinks ? [await this.flushSaves()] : await Promise.all(affected.map(t => this.flushTab(t)));
+    if (saved.includes(false)) { alert('Could not save your changes first: ' + this.openTabs.find(t => t.saveError).saveError); return; }
     const result = await window.cortex.renameFile(oldPath, newPath);
     if (!result.success) {
       alert(result.exists ? '"' + parsed.name + '" already exists.' : 'Could not rename: ' + result.error);
@@ -486,14 +490,19 @@ const App = {
       if (tab.modified) this.debounce('save_' + tab.path, () => this.saveFile(tab), 500); // typed while the rename was in flight
     });
     this.renderTabs();
+    // Tabs of rewritten notes catch up here: main's notice can arrive before the renamed note's own tab has moved to its new path
+    await Promise.all(result.updated.map(p => this.onExternalChange(p)));
     await this.renderFileTree();
     // A renamed file is shown (its tab already moved, or it opens); a renamed folder has nothing to open
-    if (!(await this.isFolder(newPath))) await this.openFile(newPath);
+    if (!folder) await this.openFile(newPath);
+    if (result.failed) alert('Renamed, but ' + result.failed.length + ' note(s) could not be updated: ' + result.failed.map(p => p.split(/[\\/]/).pop()).join(', '));
   },
 
-  // Listing succeeds only on a folder (a file fails with ENOTDIR); a missing path counts as an empty folder.
+  // Only a file fails to list with ENOTDIR (a missing path lists as an empty folder). Any other failure counts as a folder, so a
+  // caller never opens a folder as a note.
   async isFolder(p) {
-    return (await window.cortex.listFiles(p)).success;
+    const result = await window.cortex.listFiles(p);
+    return result.success || !/ENOTDIR/.test(result.error);
   },
 
   // ---- Editor with Slash Commands & Wikilinks ----
@@ -675,6 +684,8 @@ const App = {
         ok = !!result.success;
         if (ok) {
           delete tab.saveError;
+          delete tab.changedOnDisk; // our text replaced the outside change
+          tab.saved = content;
           if (tab.content === content) tab.modified = false;
         } else {
           tab.saveError = result.error || 'unknown error';
@@ -691,9 +702,52 @@ const App = {
     return tab.saving;
   },
 
+  // A failed save matters most (text not on disk), then a tab whose file changed on disk under unsaved edits
   updateSaveError() {
     const failed = this.openTabs.find(t => t.saveError);
-    this.$('statusbarError').textContent = failed ? 'Save failed: ' + failed.saveError : '';
+    const changed = this.openTabs.find(t => t.changedOnDisk);
+    this.$('statusbarError').textContent = failed ? 'Save failed: ' + failed.saveError : changed ? 'Changed on disk: ' + changed.name : '';
+  },
+
+  // A note changed on disk (the watcher, or links rewritten by a rename). Compared with the tab's `saved` text, not its content:
+  // our own save while the user keeps typing is then no change at all. A clean tab reloads; a dirty one keeps its text and is
+  // flagged. Calls for one tab run one after another, each seeing what the previous one did.
+  onExternalChange(filePath) {
+    const tab = this.findTab(this.normPath(filePath));
+    if (!tab) return Promise.resolve();
+    const check = async () => {
+      let saving, result;
+      do { // a write of ours that starts during the read may land after it: read again once it is done
+        saving = tab.saving;
+        await saving;
+        result = await window.cortex.readFile(tab.path);
+      } while (tab.saving !== saving);
+      if (!result.success || !this.openTabs.includes(tab)) return; // gone (deleted, or the tab closed): nothing to follow
+      const disk = result.content;
+      if (disk === tab.saved) return;
+      tab.saved = disk;
+      if (disk !== tab.content && tab.modified) tab.changedOnDisk = true;
+      else {
+        delete tab.changedOnDisk;
+        if (disk !== tab.content) this.reloadTab(tab, disk);
+      }
+      this.updateSaveError();
+    };
+    tab.checking = (tab.checking || Promise.resolve()).then(check, check);
+    return tab.checking;
+  },
+
+  // Shows new disk text in a clean tab; the active one keeps its caret (clamped), scroll position and focus state
+  reloadTab(tab, text) {
+    tab.content = text;
+    if (tab.path !== this.activeTab) return;
+    const ta = this.$('editorTextarea');
+    const { selectionStart, selectionEnd, scrollTop } = ta;
+    ta.value = text;
+    ta.setSelectionRange(Math.min(selectionStart, text.length), Math.min(selectionEnd, text.length));
+    ta.scrollTop = scrollTop;
+    this.updatePreview(text);
+    this.updateStatusBar(text);
   },
 
   onEditorKeydown(e) {
@@ -1042,7 +1096,7 @@ const App = {
 
     const nodes = graph.nodes.map((n, i) => {
       const angle = (i / graph.nodes.length) * Math.PI * 2;
-      return { path: n.id, label: n.label, x: centerX + Math.cos(angle) * radius, y: centerY + Math.sin(angle) * radius, vx: 0, vy: 0 };
+      return { path: n.id, key: CortexLib.pathKey(this.normPath(n.id)), label: n.label, x: centerX + Math.cos(angle) * radius, y: centerY + Math.sin(angle) * radius, vx: 0, vy: 0 };
     });
     const byPath = new Map(nodes.map(n => [n.path, n]));
     const edges = graph.edges.map(e => [byPath.get(e.source), byPath.get(e.target)]).filter(([s, t]) => s && t);
@@ -1094,8 +1148,9 @@ const App = {
         ctx.lineTo(target.x, target.y);
         ctx.stroke();
       });
+      const activeKey = CortexLib.pathKey(this.activeTab || '');
       nodes.forEach(node => {
-        const isActive = this.normPath(node.path).toUpperCase() === (this.activeTab || '').toUpperCase();
+        const isActive = node.key === activeKey;
         ctx.beginPath();
         ctx.arc(node.x, node.y, isActive ? 8 : 5, 0, Math.PI * 2);
         ctx.fillStyle = isActive ? '#e8a84c' : '#8f8a7e';

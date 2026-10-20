@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const { createVaultFs } = require('./vault-fs');
 const { VaultIndex } = require('./vault-index');
+const { normalizeStem, rewriteLinks } = require('../src/lib/note-parse.js');
 const { isSafeExternalUrl } = require('./security');
 
 let mainWindow;
@@ -232,12 +233,51 @@ ipcMain.handle('write-file', (event, filePath, content, opts) => vaultFs.write(f
 ipcMain.handle('list-files', (event, dirPath) => vaultFs.list(dirPath));
 ipcMain.handle('create-folder', (event, folderPath) => vaultFs.mkdir(folderPath));
 ipcMain.handle('delete-file', (event, filePath) => vaultFs.remove(filePath));
-ipcMain.handle('rename-file', (event, oldPath, newPath) => vaultFs.rename(oldPath, newPath));
+ipcMain.handle('rename-file', (event, oldPath, newPath) => renameNote(oldPath, newPath).catch((err) => ({ success: false, error: err.message })));
 
 // A call made during a vault switch must not see the old vault: wait until the newest reset has settled.
 async function indexSettled() {
   let p;
   do { p = indexReady; await p; } while (p !== indexReady);
+}
+
+const mdStem = (p) => (typeof p === 'string' && /\.md$/i.test(p) ? path.basename(p).slice(0, -3) : null);
+
+// Renames, then points the links that resolved to the old note (backlinks, and its own self-links) at the new name. The sources
+// are taken before the move, so a same-named note elsewhere is never touched. A note that cannot be rewritten does not undo the
+// rename: it is listed in `failed`. `updated` and `failed` hold absolute native paths (the renamed note under its new one).
+async function renameNote(oldPath, newPath) {
+  await indexSettled();
+  const oldStem = mdStem(oldPath);
+  const newStem = mdStem(newPath);
+  const sources = new Set();
+  let self = null;
+  if (oldStem !== null && newStem !== null && normalizeStem(oldStem) !== normalizeStem(newStem)) {
+    const oldKey = path.resolve(oldPath).toLowerCase();
+    for (const b of index.backlinks(oldPath)) sources.add(b.path);
+    self = index.notes().find((n) => n.path.toLowerCase() === oldKey) || null;
+    if (self && self.links.some((l) => index.resolve(l.target)?.path === self.path)) sources.add(self.path);
+  }
+
+  const result = await vaultFs.rename(oldPath, newPath);
+  if (!result.success) return result;
+  const newAbs = path.resolve(newPath);
+  const updated = [];
+  const failed = [];
+  for (const src of sources) {
+    const file = src === self?.path ? newAbs : src;
+    const read = await vaultFs.read(file); // fresh from disk: the index may lag behind a save made just before
+    if (!read.success) { failed.push(file); continue; }
+    const next = rewriteLinks(read.content, oldStem, newStem);
+    if (next !== read.content) ((await vaultFs.write(file, next)).success ? updated : failed).push(file);
+  }
+  await Promise.all([path.resolve(oldPath), newAbs, ...updated].map((p) => index.update(p))); // a folder: old subtree out, new one in
+  // The watcher finds nothing new after these updates, so open tabs of the rewritten notes and the panels hear it from here
+  for (const p of updated) notify('vault:file-changed', p);
+  scheduleIndexUpdated();
+  const reply = { success: true, updated };
+  if (failed.length) reply.failed = failed;
+  return reply;
 }
 
 const needString = (value, name) => {
