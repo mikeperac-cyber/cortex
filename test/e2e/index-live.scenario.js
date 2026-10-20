@@ -62,6 +62,12 @@ module.exports = {
       assert.equal((await js('cortex.index.resolve("welcome")')).path, welcome);
       assert.deepEqual((await js('cortex.index.graph()')).nodes.map((n) => n.id), [welcome]);
       assert.deepEqual((await js('cortex.index.search("hello")')).map((r) => r.path), [welcome]);
+      // The page gets a plain function, and calling it gives back nothing: removeListener returns ipcRenderer itself,
+      // which contextBridge would copy into the page (raw send/invoke on any channel).
+      assert.deepEqual(await js(`['onUpdated', 'onFileChanged'].map((name) => {
+        const off = cortex.index[name](() => {});
+        return [typeof off, Object.keys(off).length, typeof off()];
+      })`), [['function', 0, 'undefined'], ['function', 0, 'undefined']], 'an unsubscribe function leaked something to the page');
 
       // 1. a note written from outside appears (with its link and tag), and the renderer is told
       fs.writeFileSync(fresh, '[[Welcome]] #t');

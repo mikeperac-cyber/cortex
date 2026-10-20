@@ -16,7 +16,7 @@ const indexQuery = (channel, key, empty) => (...args) => ipcRenderer.invoke(chan
 // The page gets only the payload, never the IpcRendererEvent; the returned function removes exactly this listener.
 function subscribe(channel, handler) {
   ipcRenderer.on(channel, handler);
-  return () => ipcRenderer.removeListener(channel, handler);
+  return () => { ipcRenderer.removeListener(channel, handler); }; // removeListener returns the emitter: never hand it to the page
 }
 
 contextBridge.exposeInMainWorld('cortex', {
