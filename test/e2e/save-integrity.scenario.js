@@ -87,6 +87,7 @@ module.exports = {
       await poll('document.getElementById("fileTree").textContent.includes("Other.md")', 'the new vault in the file tree');
       assert.deepEqual(await js('window.__confirms'), [], 'a vault switch with everything saved must not ask the user anything');
     } finally {
+      await require('../../electron/main.js').setVault(vault).catch(() => {}); // unwatch `other` first: deleting a watched root makes fs.watch report EPERM
       // The app may still be reading the welcome stats from this folder, and Windows then refuses the delete for a moment.
       // Async on purpose: a sync retry blocks this (the app's main) process, so the read could never finish and release the file.
       await fs.promises.rm(other, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });

@@ -1,6 +1,35 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
+// index:* answers { success, <key> }: hand the page the bare payload, or an empty one (and a console error) on failure
+const indexQuery = (channel, key, empty) => (...args) => ipcRenderer.invoke(channel, ...args).then(
+  (reply) => {
+    if (reply && reply.success) return reply[key];
+    console.error(channel + ' failed:', reply && reply.error);
+    return empty();
+  },
+  (err) => {
+    console.error(channel + ' failed:', err);
+    return empty();
+  },
+);
+
+// The page gets only the payload, never the IpcRendererEvent; the returned function removes exactly this listener.
+function subscribe(channel, handler) {
+  ipcRenderer.on(channel, handler);
+  return () => ipcRenderer.removeListener(channel, handler);
+}
+
 contextBridge.exposeInMainWorld('cortex', {
+  index: {
+    notes: indexQuery('index:notes', 'notes', () => []),
+    resolve: indexQuery('index:resolve', 'note', () => null),
+    backlinks: indexQuery('index:backlinks', 'backlinks', () => []),
+    tags: indexQuery('index:tags', 'tags', () => []),
+    graph: indexQuery('index:graph', 'graph', () => ({ nodes: [], edges: [] })),
+    search: indexQuery('index:search', 'results', () => []),
+    onUpdated: (callback) => subscribe('vault:index-updated', () => callback()),
+    onFileChanged: (callback) => subscribe('vault:file-changed', (e, absPath) => callback(absPath)),
+  },
   getVaultPath: () => ipcRenderer.invoke('get-vault-path'),
   readFile: (filePath) => ipcRenderer.invoke('read-file', filePath),
   writeFile: (filePath, content, opts) => ipcRenderer.invoke('write-file', filePath, content, opts),

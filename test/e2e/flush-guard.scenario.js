@@ -70,6 +70,7 @@ module.exports = {
       assert.equal(await js('document.getElementById("welcomeDashboard").classList.contains("visible")'), true);
     } finally {
       fs.chmodSync(locked, 0o666);
+      await setVault(vault).catch(() => {}); // unwatch `other` first: deleting a watched root makes fs.watch report EPERM
       await fs.promises.rm(other, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     }
   },
