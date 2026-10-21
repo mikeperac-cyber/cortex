@@ -4,7 +4,7 @@
   const INLINE_CODE = /(?<!`)(`+)(?!`)[^]*?(?<!`)\1(?!`)/g;
   const HEADING = /^ {0,3}(#{1,6})\s+(.+?)(?:\s+#+)?\s*$/;
   const LINK = /!?\[\[([^\]\n]+)\]\]/g;
-  const TAG = /(?:^|\s)#([\p{L}\p{N}_\-\/]+)/gu;
+  const TAG = /(?:^|\s)#([\p{L}\p{M}\p{N}_\-\/]+)/gu; // \p{M}: a decomposed (NFD) letter keeps its combining marks
   const FM_KEY = /^([\p{L}\p{N}_\-]+):\s*(.*?)\s*$/u;
 
   const str = (s) => (typeof s === 'string' ? s : '');

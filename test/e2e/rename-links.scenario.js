@@ -88,16 +88,21 @@ module.exports = {
     assert.equal(await js(`${tabOf(abs('Ref.md'))}.modified`), false);
     assert.equal(await status(), '');
 
-    // 4. A dirty tab keeps its text when its file changes on disk, and says so until it is saved
-    await type('my unsaved words');
-    await js(`clearTimeout(App._debounceTimers['save_' + ${tabOf(abs('Ref.md'))}.path]); 0`); // no autosave: it stays dirty
+    // 4. A dirty tab keeps its text when its file changes on disk and says so; its autosave pauses, so the outside edit stays
+    //    on disk until the user saves explicitly
+    const notice = 'Changed on disk: Ref.md (Ctrl+S keeps yours)';
+    await type('my unsaved words'); // its autosave is now pending
     fs.writeFileSync(abs('Ref.md'), 'changed outside again');
     await poll(async () => (await status()).includes('Changed on disk'), 'the Changed on disk notice');
-    assert.equal(await status(), 'Changed on disk: Ref.md');
-    assert.equal(await js(`${tabOf(abs('Ref.md'))}.content`), 'my unsaved words');
-    assert.equal(await editor(), 'my unsaved words');
-    assert.equal(await js('App.flushSaves()'), true);
-    assert.equal(read('Ref.md'), 'my unsaved words');
+    assert.equal(await status(), notice);
+    await type('my unsaved words, more'); // typing on must not start a new autosave either
+    await sleep(800); // a negative check: longer than the 500 ms autosave delay
+    assert.equal(read('Ref.md'), 'changed outside again', 'an autosave overwrote the outside edit');
+    assert.equal(await status(), notice);
+    assert.equal(await js(`${tabOf(abs('Ref.md'))}.content`), 'my unsaved words, more');
+    assert.equal(await editor(), 'my unsaved words, more');
+    assert.equal(await js('App.flushSaves()'), true); // an explicit save (as Ctrl+S, closing the tab or quitting) keeps the tab's text
+    assert.equal(read('Ref.md'), 'my unsaved words, more');
     assert.equal(await status(), '', 'a successful save clears the notice');
 
     // 5. The app's own save, with typing going on while it is written, never shows "Changed on disk"

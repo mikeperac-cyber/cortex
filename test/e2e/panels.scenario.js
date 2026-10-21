@@ -50,6 +50,18 @@ module.exports = {
     await js('App.togglePanel("backlinks")');
     await waitPanel(['2 backlinks', 'A', 'links to [[B]]', 'Çalışma', 'see [[b]]'], 'the backlinks of B');
 
+    // Right-click on a panel row acts on that row's note: Star stores its path, and the Starred panel shows it
+    const menuShown = () => js('document.getElementById("contextMenu").classList.contains("visible")');
+    const rightClick = (selector) => js(`document.querySelector(${JSON.stringify(selector)})
+      .dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 20, clientY: 20 })); 0`);
+    await rightClick('#fileTree .panel-row');
+    assert.equal(await menuShown(), true, 'no menu on a backlinks row');
+    await js('document.querySelector("#contextMenu [data-action=star]").click(); 0');
+    assert.deepEqual(await js('JSON.parse(localStorage.getItem("cortex_starred"))'), [path.join(vault, 'A.md')], 'Star stored no path');
+    await js('App.togglePanel("starred")');
+    await waitPanel(['A.md'], 'the starred note');
+    assert.equal(await js('document.querySelector("#fileTree .file-tree-item").dataset.path'), path.join(vault, 'A.md'));
+
     // Tags: each tag lists its notes when expanded, and nothing opens by itself
     await js('App.togglePanel("tags")');
     await waitPanel(['#alpha (1)'], 'the tag alpha');
@@ -58,6 +70,9 @@ module.exports = {
     await js('document.querySelector("#fileTree .tag-item").click()');
     assert.deepEqual(await shownTagNotes(), ['A']);
     assert.ok((await js('App.activeTab')).endsWith('/B.md'), 'expanding a tag opened a note');
+    await js('App.hideContextMenu(); 0');
+    await rightClick('#fileTree .tag-item');
+    assert.equal(await menuShown(), false, 'a tag header (no note behind it) opened the file menu');
 
     // Search: snippet rows; a note written from outside shows up live, its markup stays text, focus stays in the box
     await js('App.togglePanel("search")');

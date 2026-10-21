@@ -81,9 +81,10 @@ function createVaultFs({ getRoot, trash }) {
       // shortcut: case-insensitive name compare is Windows-only, revisit if a non-Windows target is added
       const caseOnly = src.abs.toLowerCase() === dst.abs.toLowerCase();
       try {
-        if (!caseOnly && (await exists(dst.abs))) return fail('Destination already exists', { exists: true });
         // Windows refuses a folder rename while a file under it is open (e.g. the index reading it): give it a moment
         for (let attempt = 1; ; attempt++) {
+          // before every attempt: Windows' rename replaces an existing file, and one may appear while we wait
+          if (!caseOnly && (await exists(dst.abs))) return fail('Destination already exists', { exists: true });
           try {
             await fs.rename(src.abs, dst.abs);
             return { success: true };

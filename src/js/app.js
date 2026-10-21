@@ -20,7 +20,7 @@ const App = {
   _notes: [], // NoteMeta[] from the vault index
   _tags: [], // { tag, count, paths }[]
   _stemSet: new Set(), // normalized stems of every note
-  _starredNotes: new Set(JSON.parse(localStorage.getItem('cortex_starred') || '[]')),
+  _starredNotes: new Set(JSON.parse(localStorage.getItem('cortex_starred') || '[]').filter(p => typeof p === 'string')), // drops a stored null
   _focusMode: false,
   _layoutMode: 'split', // split, editor, preview
   _slashOpen: false,
@@ -487,7 +487,7 @@ const App = {
       if (this.activeTab === tab.path) this.activeTab = newPath + tab.path.slice(from.length);
       tab.path = newPath + tab.path.slice(from.length);
       tab.name = tab.path.split('/').pop();
-      if (tab.modified) this.debounce('save_' + tab.path, () => this.saveFile(tab), 500); // typed while the rename was in flight
+      if (tab.modified) this.scheduleSave(tab); // typed while the rename was in flight
     });
     this.renderTabs();
     // Tabs of rewritten notes catch up here: main's notice can arrive before the renamed note's own tab has moved to its new path
@@ -540,7 +540,7 @@ const App = {
     if (tab) {
       tab.content = content;
       if (!tab.modified) { tab.modified = true; this.updateTabStyles(); }
-      this.debounce('save_' + tab.path, () => this.saveFile(tab), 500);
+      this.scheduleSave(tab);
     }
     this.debounce('preview', () => this.updatePreview(content), 100);
     this.updateStatusBar(content);
@@ -702,11 +702,17 @@ const App = {
     return tab.saving;
   },
 
+  // Every autosave is scheduled here. None while the tab's file changed on disk under unsaved edits: only an explicit save
+  // (Ctrl+S, closing the tab, quitting, a vault switch or a note rename) may write over that change.
+  scheduleSave(tab) {
+    if (!tab.changedOnDisk) this.debounce('save_' + tab.path, () => this.saveFile(tab), 500);
+  },
+
   // A failed save matters most (text not on disk), then a tab whose file changed on disk under unsaved edits
   updateSaveError() {
     const failed = this.openTabs.find(t => t.saveError);
     const changed = this.openTabs.find(t => t.changedOnDisk);
-    this.$('statusbarError').textContent = failed ? 'Save failed: ' + failed.saveError : changed ? 'Changed on disk: ' + changed.name : '';
+    this.$('statusbarError').textContent = failed ? 'Save failed: ' + failed.saveError : changed ? 'Changed on disk: ' + changed.name + ' (Ctrl+S keeps yours)' : '';
   },
 
   // A note changed on disk (the watcher, or links rewritten by a rename). Compared with the tab's `saved` text, not its content:
@@ -726,8 +732,10 @@ const App = {
       const disk = result.content;
       if (disk === tab.saved) return;
       tab.saved = disk;
-      if (disk !== tab.content && tab.modified) tab.changedOnDisk = true;
-      else {
+      if (disk !== tab.content && tab.modified) {
+        tab.changedOnDisk = true;
+        clearTimeout(this._debounceTimers['save_' + tab.path]); // autosave pauses (scheduleSave)
+      } else {
         delete tab.changedOnDisk;
         if (disk !== tab.content) this.reloadTab(tab, disk);
       }
@@ -972,14 +980,16 @@ const App = {
     const results = await window.cortex.index.search(query, 50);
     if (signal.aborted) return;
     list.replaceChildren(...(results.length
-      ? results.map(r => this.panelRow(r.stem, r.snippet, () => { this.hideWelcome(); this.openFile(r.path); }))
+      ? results.map(r => this.panelRow(r.path, r.stem, r.snippet))
       : [this.panelNote('No results found.')]));
   },
 
-  // A clickable panel row: a note's stem with a line of its text under it. User text, so textContent only.
-  panelRow(title, detail, onClick) {
+  // A panel row that opens the note at `path` (the right-click menu acts on it too): its stem with a line of its text under it.
+  // User text, so textContent only.
+  panelRow(path, title, detail) {
     const el = document.createElement('div');
     el.className = 'file-tree-item panel-row';
+    el.dataset.path = path;
     const name = document.createElement('span');
     name.className = 'file-name';
     name.textContent = title;
@@ -990,7 +1000,7 @@ const App = {
       line.textContent = detail;
       el.append(line);
     }
-    el.addEventListener('click', onClick);
+    el.addEventListener('click', () => { this.hideWelcome(); this.openFile(path); });
     return el;
   },
 
@@ -1017,7 +1027,7 @@ const App = {
       const notes = document.createElement('div');
       notes.className = 'folder-children';
       notes.append(...t.paths.map(p => {
-        const row = this.panelRow(p.split(/[\\/]/).pop().replace(/\.md$/i, ''), null, () => { this.hideWelcome(); this.openFile(p); });
+        const row = this.panelRow(p, p.split(/[\\/]/).pop().replace(/\.md$/i, ''), null);
         row.classList.add('tag-note');
         return row;
       }));
@@ -1041,6 +1051,7 @@ const App = {
     starredFiles.forEach(filePath => {
       const el = document.createElement('div');
       el.className = 'file-tree-item';
+      el.dataset.path = filePath;
       const name = filePath.split(/[\\/]/).pop();
       el.innerHTML = '<span class="file-name">' + name + '</span>';
       el.addEventListener('click', () => { this.hideWelcome(); this.openFile(filePath); });
@@ -1058,7 +1069,7 @@ const App = {
     if (!links.length) { container.replaceChildren(this.panelNote('No backlinks found.')); return; }
     const header = this.panelNote(links.length + (links.length === 1 ? ' backlink' : ' backlinks'));
     header.classList.add('panel-heading');
-    container.replaceChildren(header, ...links.map(b => this.panelRow(b.stem, b.text.trim(), () => { this.hideWelcome(); this.openFile(b.path); })));
+    container.replaceChildren(header, ...links.map(b => this.panelRow(b.path, b.stem, b.text.trim())));
   },
 
   // ---- Graph View ----
@@ -1248,10 +1259,10 @@ const App = {
   // ---- Context Menu ----
 
   onContextMenu(e) {
-    if (!e.target.closest('.file-tree-item')) return;
+    if (!e.target.closest('.file-tree-item[data-path]')) return; // only rows with a file behind them (not tag headers)
     e.preventDefault();
     const menu = this.$('contextMenu');
-    const item = e.target.closest('.file-tree-item');
+    const item = e.target.closest('.file-tree-item[data-path]');
     const filePath = item.dataset.path;
 
     menu.innerHTML = `

@@ -184,6 +184,23 @@ test('rename gives up after 5 busy attempts with the last error', async (t) => {
   assert.equal(calls, 5);
 });
 
+test('a destination that appears during the retries is not overwritten', async (t) => {
+  const { root, fsx } = setup(t);
+  const src = join(root, 'a.md');
+  const dst = join(root, 'b.md');
+  fs.writeFileSync(src, 'mine');
+  let calls = 0;
+  t.mock.method(fs.promises, 'rename', async () => {
+    calls++;
+    fs.writeFileSync(dst, 'theirs'); // Windows' rename would replace this file
+    throw busy('EPERM');
+  });
+  assert.deepEqual(await fsx.rename(src, dst), { success: false, error: 'Destination already exists', exists: true });
+  assert.equal(calls, 1);
+  assert.equal(fs.readFileSync(dst, 'utf-8'), 'theirs');
+  assert.equal(fs.readFileSync(src, 'utf-8'), 'mine');
+});
+
 test('rename fails at once on any other error', async (t) => {
   const { root, fsx } = setup(t);
   fs.writeFileSync(join(root, 'a.md'), 'a');
