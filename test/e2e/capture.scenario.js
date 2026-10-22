@@ -95,7 +95,8 @@ module.exports = {
     await type((await editor()) + '\ntyped, not saved');
     assert.equal(await tab('t.modified'), true, 'the typing must still be unsaved');
     assert.equal(await capture('dirty case'), true);
-    await poll(async () => (await tab('t.content')).includes('dirty case'), 'the open tab to show the capture');
+    // at once, not when the watcher's echo comes (>= 100 ms): typing in that gap would flag the capture as "Changed on disk"
+    assert.ok((await tab('t.content')).includes('dirty case'), 'the open tab does not show the capture when captureToDaily resolves');
     const t5 = disk();
     assert.ok(t5.includes('typed, not saved') && t5.includes('dirty case'), 'typed text or capture is missing on disk');
     assert.ok(t5.indexOf('typed, not saved') < t5.indexOf('dirty case'), 'the capture must follow the typed text');
@@ -106,6 +107,21 @@ module.exports = {
     assert.equal(await js('document.getElementById("statusbarError").textContent'), '');
     assert.deepEqual(await js('window.__errTexts'), [], 'the status bar showed an error during the capture');
     assert.equal(headings(t5), 1);
+
+    // 5b. Capture while the note is active and dirty, keep typing at once (before any watcher echo), then Ctrl+S: the capture
+    // must survive the save, and no "Changed on disk" may show up for our own capture
+    await type((await editor()) + '\nbefore race');
+    assert.equal(await capture('race'), true);
+    await type((await editor()) + '\nafter race');
+    await keydown('document.getElementById("editorTextarea")', 's', { ctrlKey: true });
+    await poll(async () => !(await tab('t.modified')), 'the Ctrl+S save');
+    await sleep(400); // negative check: the watcher's echoes of the append and the save have arrived by now
+    const t5b = disk();
+    assert.ok(t5b.includes('before race') && t5b.includes('after race'), 'typed text is missing on disk');
+    assert.ok(captured().includes('race'), 'Ctrl+S removed the capture from disk');
+    assert.equal(await tab('t.content'), t5b);
+    assert.equal(await js('document.getElementById("statusbarError").textContent'), '');
+    assert.deepEqual(await js('window.__errTexts'), [], 'our own capture was flagged as "Changed on disk"');
 
     // 6. A failing write: nothing is lost, the caller is told. First the open tab's own save fails (typed text stays as typed) ...
     fs.chmodSync(note, 0o444);
@@ -218,6 +234,7 @@ module.exports = {
     await caughtUp();
     await js(`App.openFile(${q(note)})`);
     await type((await editor()) + '\nmine');
+    await js('clearTimeout(App._debounceTimers["save_" + App.openTabs[0].path]); 0'); // autosave must not beat the watcher
     fs.writeFileSync(note, disk() + 'external edit\n');
     await poll(() => tab('t.changedOnDisk'), 'the outside edit to be noticed');
     const outside = disk();

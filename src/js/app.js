@@ -279,6 +279,7 @@ const App = {
         if (!read.success) { alert('Could not capture to the daily note: ' + read.error); return false; }
         const added = await window.cortex.appendFile(notePath, CortexLib.captureAppendix(read.content, line));
         if (!added.success) { alert('Could not capture to the daily note: ' + added.error); return false; }
+        await this.onExternalChange(notePath); // the open tab shows the line now; typing before the watcher's echo would flag our own capture as "Changed on disk"
         this.notice("Captured to today's note");
         return true;
       } catch (err) {
