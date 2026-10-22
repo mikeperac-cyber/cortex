@@ -136,6 +136,13 @@ test('mentions: plain-text mentions in other notes by stem then position, CRLF-c
   assert.deepEqual(idx.mentions(undefined), []);
 });
 
+test('mentions: none for a note whose name has # or ], which no wikilink can name', async (t) => {
+  const { root, idx } = await indexed(t, { 'C# x.md': '', 'R] x.md': '', 'Plain.md': '', 'A.md': 'see C# x and R] x and Plain' });
+  assert.deepEqual(idx.mentions(join(root, 'C# x.md')), [], '[[C# x]] would point at "C"');
+  assert.deepEqual(idx.mentions(join(root, 'R] x.md')), []);
+  assert.deepEqual(idx.mentions(join(root, 'Plain.md')).map((m) => [m.stem, m.col]), [['A', 22]]);
+});
+
 test('graph: ids are paths, labels are stems, deduped edges, self and unresolved dropped', async (t) => {
   const { root, idx } = await indexed(t, {
     'A.md': '[[B]]\n[[b|again]]\n[[A]] [[Missing]]', 'B.md': '[[A#H]]', 'C.md': '',

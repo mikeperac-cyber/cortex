@@ -234,6 +234,7 @@ class VaultIndex {
     const e = this._store.get(path.resolve(absPath).toLowerCase());
     const v = this._view();
     if (!e || v.byStem.get(e.norm.stem) !== e) return [];
+    if (/[#\]]/.test(e.meta.stem)) return []; // [[C# x]] would point at "C": no wikilink can name this note
     const hits = [];
     const sources = v.sorted.filter((s) => s !== e && s.norm.body.includes(e.norm.stem)) // cheap pre-check on the folded body
       .sort((a, b) => cmp(a.norm.stem, b.norm.stem) || cmp(a.key, b.key));
