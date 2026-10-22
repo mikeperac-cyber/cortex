@@ -20,6 +20,11 @@ const App = {
   _notes: [], // NoteMeta[] from the vault index
   _tags: [], // { tag, count, paths }[]
   _stemSet: new Set(), // normalized stems of every note
+  _recent: null, // keys of the notes last switched to, newest first; null until read from storage (once per vault)
+  _switcherNotes: [], // { path, stem, rel, key }[] taken from _notes when the switcher opened
+  _switcherRows: [], // the notes the open switcher lists
+  _switcherIndex: 0, // the selected row
+  _switcherOpener: null, // what had the focus before the switcher opened
   _starredNotes: new Set(JSON.parse(localStorage.getItem('cortex_starred') || '[]').filter(p => typeof p === 'string')), // drops a stored null
   _focusMode: false,
   _layoutMode: 'split', // split, editor, preview
@@ -88,6 +93,8 @@ const App = {
     // main only sends this after every tab was saved, or the user agreed to drop the ones that could not be (confirmFlush)
     window.cortex.onVaultChanged((path) => {
       this.vaultPath = path;
+      this._recent = null; // the other vault has its own list
+      this.closeSwitcher(); // it lists the old vault
       [...this.openTabs].forEach(t => this.removeTab(t));
       this.showWelcome();
       this.updateTitleBar();
@@ -124,6 +131,15 @@ const App = {
     this.$('btnLayoutCycle').addEventListener('click', () => this.cycleLayout());
     this.$('btnGraphRefresh').addEventListener('click', () => this.initGraph());
     this.$('editorTabs').addEventListener('click', (e) => this.onTabClick(e));
+
+    const switcher = this.$('switcherOverlay');
+    this.$('switcherInput').addEventListener('input', () => this.renderSwitcher());
+    this.$('switcherInput').addEventListener('keydown', (e) => this.onSwitcherKeydown(e));
+    this.$('switcherResults').addEventListener('click', (e) => {
+      const row = e.target.closest('.switcher-item');
+      if (row) this.pickSwitcherNote(this._switcherRows[row.dataset.index]);
+    });
+    switcher.addEventListener('click', (e) => { if (e.target === switcher) this.closeSwitcher(); }); // the backdrop, not the box
 
     document.addEventListener('keydown', (e) => this.onGlobalKeydown(e));
     document.addEventListener('contextmenu', (e) => this.onContextMenu(e));
@@ -325,6 +341,7 @@ const App = {
       this.updateTabStyles();
     }
     if (this.sidebarPanel === 'backlinks') this.renderBacklinks(this.$('fileTree'));
+    if (tab) this.recordRecent(tab.path);
   },
 
   renderTabs() {
@@ -818,6 +835,11 @@ const App = {
 
   onGlobalKeydown(e) {
     if (e.ctrlKey && e.key === 'p') { e.preventDefault(); this.openCommandPalette(); }
+    if (e.ctrlKey && e.key === 'o') {
+      e.preventDefault();
+      if (this.$('askOverlay').classList.contains('visible')) return; // the ask dialog only swallows Esc/Enter/Tab: other keys typed into it still reach here
+      if (this.$('switcherOverlay').classList.contains('visible')) this.closeSwitcher(); else this.openSwitcher();
+    }
     if (e.ctrlKey && e.key === 'n') { e.preventDefault(); this.createFile(); }
     if (e.ctrlKey && e.shiftKey && e.key === 'F') { e.preventDefault(); this.togglePanel('search'); }
     if (e.ctrlKey && e.key === 'g') { e.preventDefault(); this.togglePanel('graph'); }
@@ -830,6 +852,7 @@ const App = {
     if (e.key === 'F11') { e.preventDefault(); this.toggleFocusMode(); }
     if (e.key === 'Escape') {
       this.closeCommandPalette();
+      this.closeSwitcher();
       this.hideContextMenu();
       this.hidePluginPanels();
       this.hideSlashPalette();
@@ -1197,9 +1220,106 @@ const App = {
     }, { signal });
   },
 
+  // ---- Quick Switcher ----
+
+  // `p` relative to the vault folder, "/" separated; null for a path outside it.
+  relPath(p) {
+    p = this.normPath(p);
+    const root = this.normPath(this.vaultPath).replace(/\/$/, '') + '/';
+    return CortexLib.pathKey(p).startsWith(CortexLib.pathKey(root)) ? p.slice(root.length) : null;
+  },
+
+  _loadRecent() {
+    try {
+      const list = JSON.parse(localStorage.getItem('cortex_recent:' + this.vaultPath));
+      this._recent = Array.isArray(list) ? list.filter(k => typeof k === 'string').slice(0, 30) : [];
+    } catch { this._recent = []; } // blocked storage or a garbage value: start with an empty list
+    return this._recent;
+  },
+
+  // Puts a note at the front of the vault's recents (30 at most), as the same key tabs are compared by.
+  recordRecent(filePath) {
+    if (this.relPath(filePath) === null) return; // a tab of the vault being left (closed on a vault switch) is not the new vault's
+    const key = CortexLib.pathKey(this.normPath(filePath));
+    this._recent = [key, ...(this._recent || this._loadRecent()).filter(k => k !== key)].slice(0, 30);
+    try { localStorage.setItem('cortex_recent:' + this.vaultPath, JSON.stringify(this._recent)); } catch { /* full or blocked: the list stays in memory */ }
+  },
+
+  openSwitcher() {
+    const overlay = this.$('switcherOverlay');
+    if (!overlay.classList.contains('visible')) this._switcherOpener = document.activeElement;
+    this.closeCommandPalette(); // the two overlays never stack
+    this._switcherNotes = this._notes.map(n => ({ path: n.path, stem: n.stem, rel: this.relPath(n.path) ?? this.normPath(n.path), key: CortexLib.pathKey(this.normPath(n.path)) }));
+    if (!this._recent) this._loadRecent();
+    overlay.classList.add('visible');
+    const input = this.$('switcherInput');
+    input.value = '';
+    input.focus();
+    this.renderSwitcher();
+  },
+
+  closeSwitcher() {
+    const overlay = this.$('switcherOverlay');
+    if (!overlay.classList.contains('visible')) return;
+    overlay.classList.remove('visible');
+    const opener = this._switcherOpener;
+    this._switcherOpener = null;
+    if (opener && opener.isConnected) opener.focus(); // as Dialogs.ask does
+  },
+
+  // Names reach the DOM as text only.
+  renderSwitcher() {
+    this._switcherRows = CortexLib.rankNotes(this.$('switcherInput').value, this._switcherNotes, this._recent, 20);
+    this._switcherIndex = 0;
+    const rows = this._switcherRows.map((note, i) => {
+      const row = document.createElement('div');
+      row.className = 'command-result-item switcher-item' + (i === 0 ? ' selected' : '');
+      row.dataset.index = i;
+      const stem = document.createElement('span');
+      stem.className = 'switcher-stem';
+      stem.textContent = note.stem;
+      const rel = document.createElement('span');
+      rel.className = 'switcher-rel';
+      rel.textContent = note.rel;
+      row.append(stem, rel);
+      return row;
+    });
+    if (!rows.length) {
+      const none = document.createElement('div');
+      none.className = 'switcher-empty';
+      none.textContent = 'No matching notes';
+      rows.push(none);
+    }
+    this.$('switcherResults').replaceChildren(...rows);
+  },
+
+  onSwitcherKeydown(e) {
+    if (e.isComposing) return; // Enter / arrows belong to the input method until the text is committed
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (!this._switcherRows.length) return;
+      const rows = this.$('switcherResults').children;
+      rows[this._switcherIndex].classList.remove('selected');
+      this._switcherIndex = Math.max(0, Math.min(rows.length - 1, this._switcherIndex + (e.key === 'ArrowDown' ? 1 : -1)));
+      rows[this._switcherIndex].classList.add('selected');
+      rows[this._switcherIndex].scrollIntoView({ block: 'nearest' });
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      const note = this._switcherRows[this._switcherIndex];
+      if (note) this.pickSwitcherNote(note);
+    }
+  },
+
+  pickSwitcherNote(note) {
+    this.closeSwitcher();
+    this.hideWelcome();
+    this.openFile(note.path);
+  },
+
   // ---- Command Palette ----
 
   openCommandPalette() {
+    this.closeSwitcher(); // the two overlays never stack
     this.$('commandPaletteOverlay').classList.add('visible');
     this.$('commandInput').value = '';
     this.$('commandInput').focus();
@@ -1242,6 +1362,7 @@ const App = {
 
   registerCoreCommands() {
     this.commands = [
+      { name: 'Quick Open', shortcut: 'Ctrl+O', icon: '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M3.5 1.5H8L11 4.5V12.5H3.5V1.5Z" stroke="currentColor" stroke-width="1"/><path d="M8 1.5V4.5H11" stroke="currentColor" stroke-width="1"/></svg>', action: () => this.openSwitcher() },
       { name: 'New File', shortcut: 'Ctrl+N', icon: '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 2V12M2 7H12" stroke="currentColor" stroke-width="1.5"/></svg>', action: () => this.createFile() },
       { name: 'Toggle Preview', shortcut: 'Ctrl+E', icon: '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 4H12M2 7H12M2 10H8" stroke="currentColor" stroke-width="1"/></svg>', action: () => this.togglePreview() },
       { name: 'Toggle Graph View', shortcut: 'Ctrl+G', icon: '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="4" cy="7" r="2" stroke="currentColor" stroke-width="1"/><circle cx="10" cy="3" r="2" stroke="currentColor" stroke-width="1"/><circle cx="10" cy="11" r="2" stroke="currentColor" stroke-width="1"/><path d="M6 7L8 3M6 7L8 11" stroke="currentColor" stroke-width="1"/></svg>', action: () => this.togglePanel('graph') },
