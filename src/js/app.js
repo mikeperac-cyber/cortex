@@ -399,6 +399,7 @@ const App = {
       this.updateTabStyles();
     }
     if (this.sidebarPanel === 'backlinks') this.renderBacklinks(this.$('fileTree'));
+    this.refreshOutline();
     if (tab) this.recordRecent(tab.path);
   },
 
@@ -490,6 +491,7 @@ const App = {
         this.$('editorTextarea').value = '';
         this.$('previewContent').innerHTML = '';
         this.updateStatusBar('');
+        this.refreshOutline();
         this.showWelcome();
       }
     }
@@ -618,6 +620,7 @@ const App = {
       this.scheduleSave(tab);
     }
     this.debounce('preview', () => this.updatePreview(content), 100);
+    if (this.sidebarPanel === 'outline') this.debounce('outline', () => this.refreshOutline(), 300);
     this.updateStatusBar(content);
   },
 
@@ -831,6 +834,7 @@ const App = {
     ta.scrollTop = scrollTop;
     this.updatePreview(text);
     this.updateStatusBar(text);
+    this.refreshOutline();
   },
 
   onEditorKeydown(e) {
@@ -1024,7 +1028,7 @@ const App = {
   updatePanelContent(panel) {
     const header = this.$('sidePanelHeader');
     const tree = this.$('fileTree');
-    const titles = { fileExplorer: 'File Explorer', search: 'Search', graph: 'Graph View', backlinks: 'Backlinks', tags: 'Tags', starred: 'Starred' };
+    const titles = { fileExplorer: 'File Explorer', search: 'Search', graph: 'Graph View', backlinks: 'Backlinks', tags: 'Tags', outline: 'Outline', starred: 'Starred' };
     header.querySelector('span').textContent = titles[panel] || panel;
     if (panel !== 'graph') this.hideGraphView(); // the editor and preview come back
 
@@ -1043,6 +1047,9 @@ const App = {
     } else if (panel === 'tags') {
       tree.style.display = '';
       this.renderTagsPanel(tree);
+    } else if (panel === 'outline') {
+      tree.style.display = '';
+      this.renderOutline(tree);
     } else if (panel === 'starred') {
       tree.style.display = '';
       this.renderStarredPanel(tree);
@@ -1156,6 +1163,39 @@ const App = {
     const header = this.panelNote(links.length + (links.length === 1 ? ' backlink' : ' backlinks'));
     header.classList.add('panel-heading');
     container.replaceChildren(header, ...links.map(b => this.panelRow(b.path, b.stem, b.text.trim())));
+  },
+
+  // Redraws the outline from the editor text (unsaved typing included), but only while that panel is the open one.
+  refreshOutline() {
+    if (this.sidebarPanel === 'outline') this.renderOutline(this.$('fileTree'));
+  },
+
+  // The active note's headings, one row each, indented by level (CSS); a click jumps to the heading's line.
+  renderOutline(container) {
+    if (!this.activeTab) { container.replaceChildren(this.panelNote('Open a note to see its outline.')); return; }
+    const { headings } = CortexLib.parseNote(this.$('editorTextarea').value);
+    if (!headings.length) { container.replaceChildren(this.panelNote('No headings.')); return; }
+    container.replaceChildren(...headings.map(h => {
+      const el = document.createElement('div');
+      el.className = 'file-tree-item outline-item outline-l' + h.level;
+      const name = document.createElement('span');
+      name.className = 'file-name';
+      name.textContent = h.text; // user text
+      el.append(name);
+      el.addEventListener('click', () => this.jumpToLine(h.line));
+      return el;
+    }));
+  },
+
+  // Caret to the start of 0-based `line` of the editor, which gets focus and scrolls there. The textarea's value is LF-only even
+  // for a CRLF note, so its line numbers are the file's. blur + focus: focus() is what scrolls a textarea to its caret in Chromium.
+  jumpToLine(line) {
+    const ta = this.$('editorTextarea');
+    const at = ta.value.split('\n').slice(0, line).reduce((n, l) => n + l.length + 1, 0);
+    ta.blur();
+    ta.setSelectionRange(at, at);
+    ta.focus();
+    this.updateStatusBar(ta.value);
   },
 
   // ---- Graph View ----

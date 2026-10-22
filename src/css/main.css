@@ -170,6 +170,14 @@ body {
 .panel-note { padding: 12px; color: var(--text-2); font-size: 13px; }
 .panel-note.panel-heading { padding: 8px 12px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
 
+/* ---- Outline rows: indent by heading level ---- */
+.outline-l1 { padding-left: 8px; }
+.outline-l2 { padding-left: 20px; }
+.outline-l3 { padding-left: 32px; }
+.outline-l4 { padding-left: 44px; }
+.outline-l5 { padding-left: 56px; }
+.outline-l6 { padding-left: 68px; }
+
 /* ---- Editor Area ---- */
 .editor-area { flex: 1; display: flex; flex-direction: column; overflow: hidden; background: var(--bg-0); contain: layout; }
 .editor-tabs {

@@ -67,7 +67,7 @@
     const links = [];
     masked.forEach((text, line) => {
       const h = HEADING.test(text) && HEADING.exec(body[line]); // detect on masked (fenced = no heading), read text from the original
-      if (h) headings.push({ level: h[1].length, text: h[2] });
+      if (h) headings.push({ level: h[1].length, text: h[2], line });
       for (const m of text.matchAll(TAG)) if (!/^\p{N}+$/u.test(m[1])) addTag(m[1]);
       for (const m of text.matchAll(LINK)) {
         const [left, ...rest] = m[1].split('|');

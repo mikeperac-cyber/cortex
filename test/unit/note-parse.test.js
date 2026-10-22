@@ -20,7 +20,7 @@ test('frontmatter: inline list, block list, scalar; merges tags', () => {
   const r = p('---\ntags: [a, b]\nstatus: "active"\naliases:\n  - X\n---\n# T #c');
   assert.deepEqual(r.frontmatter, { tags: ['a', 'b'], status: 'active', aliases: ['X'] }); assert.deepEqual(r.tags, ['a', 'b', 'c']); });
 test('unclosed frontmatter is treated as body', () => assert.deepEqual(p('---\ntags: [a]\n').frontmatter, {}));
-test('BOM is stripped; title and headings', () => { const r = p('﻿# T\n## S'); assert.equal(r.title, 'T'); assert.deepEqual(r.headings, [{ level: 1, text: 'T' }, { level: 2, text: 'S' }]); });
+test('BOM is stripped; title and headings', () => { const r = p('﻿# T\n## S'); assert.equal(r.title, 'T'); assert.deepEqual(r.headings, [{ level: 1, text: 'T', line: 0 }, { level: 2, text: 'S', line: 1 }]); });
 test('normalizeStem folds case and Unicode form (decomposed C+cedilla == precomposed ç)', () =>
   assert.equal(normalizeStem('Çalışma'), normalizeStem('çalışma')));
 
@@ -40,7 +40,9 @@ test('an unclosed fence hides the rest; double-backtick spans hide links', () =>
   assert.deepEqual(p('``` js\n[[In]]\n[[Also]] #in').links, []);
   assert.deepEqual(p('`` a ` [[In]] `` [[Out]]').links.map(l => l.target), ['Out']); });
 test('headings: closing hashes stripped; fenced and empty ones skipped', () => {
-  assert.deepEqual(p('## A ##\n```\n# no\n```\n#\n###### F').headings, [{ level: 2, text: 'A' }, { level: 6, text: 'F' }]); });
+  assert.deepEqual(p('## A ##\n```\n# no\n```\n#\n###### F').headings, [{ level: 2, text: 'A', line: 0 }, { level: 6, text: 'F', line: 5 }]); });
+test('headings carry their 0-based original line; frontmatter counts, fenced headings are skipped', () =>
+  assert.deepEqual(p('---\nt: 1\n---\n~~~\n# no\n~~~\n## Yes').headings, [{ level: 2, text: 'Yes', line: 6 }]));
 test('frontmatter block lists may sit at column 0; a bare key is an empty string', () =>
   assert.deepEqual(p('---\naliases:\n- A\n- "B"\nempty:\n---').frontmatter, { aliases: ['A', 'B'], empty: '' }));
 test('frontmatter tags accept a scalar and a leading #', () =>
