@@ -105,6 +105,17 @@ module.exports = {
     assert.deepEqual((await stored(otherKey)).tabs, []);
 
     assert.deepEqual(await js('window.__alerts'), []);
+
+    // 8. A real startup: reloading the page runs init, whose restore brings back what was saved (the page's alert stub goes
+    //    with the old page, hence after the alerts check)
+    await js('window.__oldPage = true; 0');
+    win.webContents.reload();
+    await poll(async () => {
+      try {
+        return await js('typeof App !== "undefined" && !window.__oldPage && App._restoring === false && App.openTabs.length === 2');
+      } catch { return false; } // mid-reload
+    }, 'the restore at startup', 10000);
+    assert.deepEqual(await state(), restoredAB(A, ['Alpha']));
     assert.deepEqual(errors, [], 'renderer errors');
   },
 };
