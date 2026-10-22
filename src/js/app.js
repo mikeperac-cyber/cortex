@@ -251,9 +251,8 @@ const App = {
 
   // The only daily-note opener (Welcome button and DailySync).
   async openDailyNote() {
-    const notePath = await this.ensureDailyNote();
+    const notePath = await this.ensureDailyNote(); // already re-renders the tree when it creates the note
     if (!notePath) return;
-    await this.renderFileTree();
     this.hideWelcome();
     await this.openFile(notePath);
   },
@@ -367,11 +366,13 @@ const App = {
       const isStarred = !isFolder && this._starredNotes.has(item.path);
       const starIcon = isStarred ? ' <span style="color:var(--accent-0);font-size:10px;">&#9733;</span>' : '';
 
-      el.innerHTML = `${icon}<span class="file-name">${item.name}${starIcon}</span><div class="file-actions">
+      // item.name is user-controlled (a file/folder name): build the static markup via innerHTML, then set the name with textContent.
+      el.innerHTML = `${icon}<span class="file-name"></span>${starIcon}<div class="file-actions">
         <button class="action-star" title="${isStarred ? 'Unstar' : 'Star'}"><svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M6 1L7.5 4.5L11 5L8.5 7.5L9 11L6 9.5L3 11L3.5 7.5L1 5L4.5 4.5L6 1Z" stroke="currentColor" stroke-width="1" fill="${isStarred ? 'currentColor' : 'none'}"/></svg></button>
         <button class="action-rename" title="Rename"><svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 10H10" stroke="currentColor" stroke-width="1"/></svg></button>
         <button class="action-delete" title="Delete"><svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 3H10M4 3V2H8V3M3 3L4 10H8L9 3" stroke="currentColor" stroke-width="1"/></svg></button>
       </div>`;
+      el.querySelector('.file-name').textContent = item.name;
 
       el.addEventListener('click', (e) => {
         if (e.target.closest('.file-actions')) return;
@@ -947,26 +948,28 @@ const App = {
   },
 
   onGlobalKeydown(e) {
-    if (e.ctrlKey && e.key === 'p') { e.preventDefault(); this.openCommandPalette(); }
-    if (e.ctrlKey && e.key === 'o') {
+    // e.code (the physical key) is used for every Ctrl+<letter> shortcut below: e.key flips case with Caps Lock
+    // (Ctrl+Shift+N with Caps Lock on produces e.key 'n', which used to run New File instead of Quick Capture).
+    if (e.ctrlKey && e.code === 'KeyP') { e.preventDefault(); this.openCommandPalette(); }
+    if (e.ctrlKey && e.code === 'KeyO') {
       e.preventDefault();
       if (this.$('askOverlay').classList.contains('visible')) return; // the ask dialog only swallows Esc/Enter/Tab: other keys typed into it still reach here
       if (this.$('switcherOverlay').classList.contains('visible')) this.closeSwitcher(); else this.openSwitcher();
     }
-    if (e.ctrlKey && e.key === 'n') { e.preventDefault(); this.createFile(); }
-    if (e.ctrlKey && e.shiftKey && e.key === 'N') {
+    if (e.ctrlKey && e.code === 'KeyN' && !e.shiftKey) { e.preventDefault(); this.createFile(); }
+    if (e.ctrlKey && e.shiftKey && e.code === 'KeyN') {
       e.preventDefault();
       // a dialog or overlay is open: the ask dialog only swallows Esc/Enter/Tab, and a second one would supersede it
       if (!document.querySelector('.modal-overlay.visible')) this.quickCapture();
     }
-    if (e.ctrlKey && e.shiftKey && e.key === 'F') { e.preventDefault(); this.togglePanel('search'); }
-    if (e.ctrlKey && e.key === 'g') { e.preventDefault(); this.togglePanel('graph'); }
-    if (e.ctrlKey && e.key === 's') {
+    if (e.ctrlKey && e.shiftKey && e.code === 'KeyF') { e.preventDefault(); this.togglePanel('search'); }
+    if (e.ctrlKey && e.code === 'KeyG') { e.preventDefault(); this.togglePanel('graph'); }
+    if (e.ctrlKey && e.code === 'KeyS') {
       e.preventDefault();
       const tab = this.openTabs.find(t => t.path === this.activeTab);
       if (tab) this.flushTab(tab);
     }
-    if (e.ctrlKey && e.key === 'w') { e.preventDefault(); if (this.activeTab) this.closeTab(this.activeTab); }
+    if (e.ctrlKey && e.code === 'KeyW') { e.preventDefault(); if (this.activeTab) this.closeTab(this.activeTab); }
     if (e.key === 'F11') { e.preventDefault(); this.toggleFocusMode(); }
     if (e.key === 'Escape') {
       this.closeCommandPalette();
@@ -1198,7 +1201,10 @@ const App = {
       el.className = 'file-tree-item';
       el.dataset.path = filePath;
       const name = filePath.split(/[\\/]/).pop();
-      el.innerHTML = '<span class="file-name">' + name + '</span>';
+      const label = document.createElement('span');
+      label.className = 'file-name';
+      label.textContent = name;
+      el.appendChild(label);
       el.addEventListener('click', () => { this.hideWelcome(); this.openFile(filePath); });
       fragment.appendChild(el);
     });
@@ -1533,7 +1539,9 @@ const App = {
     filtered.slice(0, 20).forEach((cmd, i) => {
       const el = document.createElement('div');
       el.className = 'command-result-item' + (i === 0 ? ' selected' : '');
-      el.innerHTML = `<span class="cmd-icon">${cmd.icon || ''}</span><span class="cmd-label">${cmd.name}</span><span class="cmd-shortcut">${cmd.shortcut || ''}</span>`;
+      // cmd.icon/shortcut come from this.commands or the fixed template above (trusted); cmd.name can be a tab's file name.
+      el.innerHTML = `<span class="cmd-icon">${cmd.icon || ''}</span><span class="cmd-label"></span><span class="cmd-shortcut">${cmd.shortcut || ''}</span>`;
+      el.querySelector('.cmd-label').textContent = cmd.name;
       el.addEventListener('click', () => { cmd.action(); this.closeCommandPalette(); });
       fragment.appendChild(el);
     });

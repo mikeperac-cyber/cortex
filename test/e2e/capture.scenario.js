@@ -41,7 +41,10 @@ module.exports = {
     })()`);
     const keydown = (target, key, opts = {}) => js(`${target}.dispatchEvent(
       new KeyboardEvent('keydown', Object.assign({ key: ${q(key)}, bubbles: true, cancelable: true }, ${q(opts)}))); 0`);
-    const ctrlShiftN = (target = 'document') => keydown(target, 'N', { ctrlKey: true, shiftKey: true });
+    const ctrlShiftN = (target = 'document') => keydown(target, 'N', { code: 'KeyN', ctrlKey: true, shiftKey: true });
+    // Caps Lock inverts letter case: Ctrl+Shift+N with it on produces key 'n' (shiftKey still true), which used to match the
+    // plain Ctrl+N branch (new file) before Quick Capture's own branch. code is case/Caps-Lock independent.
+    const ctrlShiftNCapsLock = (target = 'document') => keydown(target, 'n', { code: 'KeyN', ctrlKey: true, shiftKey: true });
     const askVisible = () => js('document.getElementById("askOverlay").classList.contains("visible")');
     const askTitle = () => js('document.getElementById("askTitle").textContent');
     const askValue = () => js('document.getElementById("askInput").value');
@@ -205,6 +208,15 @@ module.exports = {
     await ctrlShiftN('document.getElementById("commandInput")');
     assert.equal(await askVisible(), false, 'Ctrl+Shift+N opened the dialog over the command palette');
     await js('App.closeCommandPalette(); 0');
+
+    // 7b. Caps Lock inverts letter case but not the physical key: Ctrl+Shift+N must still open Quick Capture, not New File
+    const tabsBefore = (await js('App.openTabs.length'));
+    await ctrlShiftNCapsLock();
+    assert.equal(await askTitle(), 'Quick capture', 'Caps Lock made Ctrl+Shift+N open the wrong dialog');
+    await fill('caps lock capture');
+    await enter();
+    await poll(() => captured().includes('caps lock capture'), 'the caps-lock capture on disk');
+    assert.equal(await js('App.openTabs.length'), tabsBefore, 'Caps Lock made Ctrl+Shift+N create a new file');
 
     // 8. The command palette lists it and runs it
     assert.equal(await js('App.commands.some((c) => c.name === "Quick Capture" && c.shortcut === "Ctrl+Shift+N")'), true, 'no Quick Capture command');

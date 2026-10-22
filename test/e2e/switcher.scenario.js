@@ -113,7 +113,7 @@ module.exports = {
     assert.equal(await js('document.activeElement && document.activeElement.id'), 'editorTextarea', 'the focus did not return to the editor');
 
     // Ctrl+O toggles it, but not over the ask dialog (which only swallows Esc/Enter/Tab)
-    const ctrlO = (target) => js(`${target}.dispatchEvent(new KeyboardEvent('keydown', { key: 'o', ctrlKey: true, bubbles: true, cancelable: true })); 0`);
+    const ctrlO = (target) => js(`${target}.dispatchEvent(new KeyboardEvent('keydown', { key: 'o', code: 'KeyO', ctrlKey: true, bubbles: true, cancelable: true })); 0`);
     await ctrlO('document');
     assert.equal(await visible(), true, 'Ctrl+O did not open the switcher');
     await ctrlO('document');
