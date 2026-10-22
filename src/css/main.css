@@ -306,6 +306,8 @@ body {
 .statusbar-left { min-width: 0; }
 #statusbarError { color: var(--danger); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #statusbarError:empty { display: none; }
+#statusbarNotice { color: var(--success); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#statusbarNotice:empty { display: none; }
 
 /* ---- Command Palette ---- */
 .modal-overlay {

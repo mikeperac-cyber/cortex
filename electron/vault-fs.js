@@ -43,6 +43,12 @@ function createVaultFs({ getRoot, trash }) {
       return { success: true };
     }),
 
+    append: (p, text) => run(p, false, async (abs) => {
+      await fs.mkdir(path.dirname(abs), { recursive: true });
+      await fs.appendFile(abs, text, 'utf-8');
+      return { success: true };
+    }),
+
     list: (dir) => run(dir, true, async (abs) => {
       let items;
       try {

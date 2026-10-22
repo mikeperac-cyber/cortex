@@ -194,16 +194,74 @@ const App = {
     }));
   },
 
-  // The only daily-note opener (Welcome button and DailySync). overwrite:false makes create-if-absent atomic: an existing note is opened as-is, never rewritten.
-  async openDailyNote() {
+  // Today's daily note, made from the template if absent; resolves its path, or null after an alert. overwrite:false makes
+  // create-if-absent atomic: an existing note is left as-is, never rewritten.
+  async ensureDailyNote() {
     const today = CortexLib.localDateStr();
     const notePath = this.vaultPath + '/Daily Notes/' + today + '.md';
     const template = '# ' + today + '\n\n## Notes\n\n## Tasks\n- [ ] \n\n## Reflections\n';
     const result = await window.cortex.writeFile(notePath, template, { overwrite: false });
-    if (!result.success && !result.exists) { alert('Could not open the daily note: ' + result.error); return; }
+    if (!result.success && !result.exists) { alert('Could not open the daily note: ' + result.error); return null; }
+    if (result.success) this.renderFileTree(); // a note made just now is not in the explorer yet
+    return notePath;
+  },
+
+  // The only daily-note opener (Welcome button and DailySync).
+  async openDailyNote() {
+    const notePath = await this.ensureDailyNote();
+    if (!notePath) return;
     await this.renderFileTree();
     this.hideWelcome();
     await this.openFile(notePath);
+  },
+
+  // Files one line under "## Captures" at the end of today's daily note (made if absent) without opening it. Calls run one at a
+  // time, in call order, so the heading is written once. The note's open tab is saved first (its unsaved typing must be on disk
+  // before the append) and then follows the file like any outside change (onExternalChange). true once the line is on disk;
+  // otherwise the user was told why, except for blank text, which is a silent no.
+  captureToDaily(text) {
+    const line = CortexLib.captureLine(text); // the time is when it was typed, not when the queue gets to it
+    if (!line) return Promise.resolve(false);
+    const capture = async () => {
+      try { // anything going wrong here (a rejected call, a reply that is not a result) is a failed capture, never an exception
+        const notePath = await this.ensureDailyNote();
+        if (!notePath) return false;
+        const tab = this.findTab(this.normPath(notePath));
+        if (tab?.changedOnDisk) { // flushing would write the tab over that outside change: only an explicit save may
+          alert('"' + tab.name + '" changed on disk while it has unsaved edits. Save it first (Ctrl+S keeps yours), then capture again.');
+          return false;
+        }
+        if (tab && !(await this.flushTab(tab))) { alert('Could not capture: "' + tab.name + '" could not be saved first (' + tab.saveError + ')'); return false; }
+        const read = await window.cortex.readFile(notePath);
+        if (!read.success) { alert('Could not capture to the daily note: ' + read.error); return false; }
+        const added = await window.cortex.appendFile(notePath, CortexLib.captureAppendix(read.content, line));
+        if (!added.success) { alert('Could not capture to the daily note: ' + added.error); return false; }
+        this.notice("Captured to today's note");
+        return true;
+      } catch (err) {
+        alert('Could not capture to the daily note: ' + err.message);
+        return false;
+      }
+    };
+    // `capture` handles its own errors, but the second `capture` keeps the queue alive even if a link in it ever rejects
+    this._capturing = (this._capturing || Promise.resolve()).then(capture, capture);
+    return this._capturing;
+  },
+
+  // Ctrl+Shift+N: one line, filed under today's Captures. When that fails the dialog comes back with the same text.
+  async quickCapture() {
+    let value = '';
+    for (;;) {
+      const text = await Dialogs.ask({ title: 'Quick capture', value, placeholder: "A thought for today's note" });
+      if (!text || await this.captureToDaily(text)) return; // cancelled, or filed
+      value = text;
+    }
+  },
+
+  // A short message in the status bar, gone after `ms`; a newer one replaces it and takes over the timer.
+  notice(text, ms = 2500) {
+    this.$('statusbarNotice').textContent = text;
+    this.debounce('notice', () => { this.$('statusbarNotice').textContent = ''; }, ms);
   },
 
   // ---- Focus Mode ----
@@ -841,6 +899,11 @@ const App = {
       if (this.$('switcherOverlay').classList.contains('visible')) this.closeSwitcher(); else this.openSwitcher();
     }
     if (e.ctrlKey && e.key === 'n') { e.preventDefault(); this.createFile(); }
+    if (e.ctrlKey && e.shiftKey && e.key === 'N') {
+      e.preventDefault();
+      // a dialog or overlay is open: the ask dialog only swallows Esc/Enter/Tab, and a second one would supersede it
+      if (!document.querySelector('.modal-overlay.visible')) this.quickCapture();
+    }
     if (e.ctrlKey && e.shiftKey && e.key === 'F') { e.preventDefault(); this.togglePanel('search'); }
     if (e.ctrlKey && e.key === 'g') { e.preventDefault(); this.togglePanel('graph'); }
     if (e.ctrlKey && e.key === 's') {
@@ -1366,6 +1429,7 @@ const App = {
     this.commands = [
       { name: 'Quick Open', shortcut: 'Ctrl+O', icon: '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M3.5 1.5H8L11 4.5V12.5H3.5V1.5Z" stroke="currentColor" stroke-width="1"/><path d="M8 1.5V4.5H11" stroke="currentColor" stroke-width="1"/></svg>', action: () => this.openSwitcher() },
       { name: 'New File', shortcut: 'Ctrl+N', icon: '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 2V12M2 7H12" stroke="currentColor" stroke-width="1.5"/></svg>', action: () => this.createFile() },
+      { name: 'Quick Capture', shortcut: 'Ctrl+Shift+N', icon: '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 12L3 9L10 2L12 4L5 11L2 12Z" stroke="currentColor" stroke-width="1"/></svg>', action: () => this.quickCapture() },
       { name: 'Toggle Preview', shortcut: 'Ctrl+E', icon: '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 4H12M2 7H12M2 10H8" stroke="currentColor" stroke-width="1"/></svg>', action: () => this.togglePreview() },
       { name: 'Toggle Graph View', shortcut: 'Ctrl+G', icon: '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="4" cy="7" r="2" stroke="currentColor" stroke-width="1"/><circle cx="10" cy="3" r="2" stroke="currentColor" stroke-width="1"/><circle cx="10" cy="11" r="2" stroke="currentColor" stroke-width="1"/><path d="M6 7L8 3M6 7L8 11" stroke="currentColor" stroke-width="1"/></svg>', action: () => this.togglePanel('graph') },
       { name: 'Open Search', shortcut: 'Ctrl+Shift+F', icon: '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="6" cy="6" r="4" stroke="currentColor" stroke-width="1"/><path d="M9.5 9.5L12 12" stroke="currentColor" stroke-width="1"/></svg>', action: () => this.togglePanel('search') },

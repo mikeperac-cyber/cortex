@@ -33,6 +33,7 @@ contextBridge.exposeInMainWorld('cortex', {
   getVaultPath: () => ipcRenderer.invoke('get-vault-path'),
   readFile: (filePath) => ipcRenderer.invoke('read-file', filePath),
   writeFile: (filePath, content, opts) => ipcRenderer.invoke('write-file', filePath, content, opts),
+  appendFile: (filePath, text) => ipcRenderer.invoke('append-file', filePath, text),
   listFiles: (dirPath) => ipcRenderer.invoke('list-files', dirPath),
   createFolder: (folderPath) => ipcRenderer.invoke('create-folder', folderPath),
   deleteFile: (filePath) => ipcRenderer.invoke('delete-file', filePath),

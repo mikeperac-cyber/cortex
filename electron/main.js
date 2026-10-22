@@ -230,6 +230,9 @@ ipcMain.handle('get-vault-path', () => vaultPath);
 
 ipcMain.handle('read-file', (event, filePath) => vaultFs.read(filePath));
 ipcMain.handle('write-file', (event, filePath, content, opts) => vaultFs.write(filePath, content, opts));
+ipcMain.handle('append-file', (event, filePath, text) => (
+  typeof filePath === 'string' && typeof text === 'string' ? vaultFs.append(filePath, text) : { success: false, error: 'Invalid arguments' }
+));
 ipcMain.handle('list-files', (event, dirPath) => vaultFs.list(dirPath));
 ipcMain.handle('create-folder', (event, folderPath) => vaultFs.mkdir(folderPath));
 ipcMain.handle('delete-file', (event, filePath) => vaultFs.remove(filePath));

@@ -61,7 +61,7 @@ test('every op rejects paths outside the vault', async (t) => {
   fs.writeFileSync(out, 'secret');
   fs.writeFileSync(join(root, 'a.md'), 'a');
   const results = await Promise.all([
-    fsx.read(out), fsx.write(out, 'x'), fsx.list(base), fsx.mkdir(join(base, 'newdir')),
+    fsx.read(out), fsx.write(out, 'x'), fsx.append(out, 'x'), fsx.list(base), fsx.mkdir(join(base, 'newdir')),
     fsx.remove(out), fsx.rename(join(root, 'a.md'), out), fsx.rename(out, join(root, 'b.md')),
     fsx.read(join(root, '..', 'out.md')),
   ]);
@@ -104,10 +104,11 @@ test('remove and rename refuse the vault root itself', async (t) => {
   assert.deepEqual(trashed, []);
 });
 
-test('read and write refuse the vault root itself; list and mkdir accept it', async (t) => {
+test('read, write and append refuse the vault root itself; list and mkdir accept it', async (t) => {
   const { root, fsx } = setup(t);
   assert.equal((await fsx.read(root)).success, false);
   assert.equal((await fsx.write(root, 'x')).success, false);
+  assert.equal((await fsx.append(root, 'x')).success, false);
   assert.equal((await fsx.list(root)).success, true);
   assert.equal((await fsx.mkdir(root)).success, true);
 });
@@ -128,6 +129,39 @@ test('write overwrites by default and overwrite:false creates a new file', async
   assert.equal((await fsx.write(p, 'one', { overwrite: false })).success, true);
   assert.equal((await fsx.write(p, 'two')).success, true);
   assert.equal(fs.readFileSync(p, 'utf-8'), 'two');
+});
+
+test('append adds to the end of a file and keeps its text', async (t) => {
+  const { root, fsx } = setup(t);
+  const p = join(root, 'a.md');
+  fs.writeFileSync(p, 'one\n');
+  assert.deepEqual(await fsx.append(p, 'two\n'), { success: true });
+  assert.deepEqual(await fsx.append(p, 'thrée\n'), { success: true });
+  assert.equal(fs.readFileSync(p, 'utf-8'), 'one\ntwo\nthrée\n');
+});
+
+test('append creates the file and its parent folders', async (t) => {
+  const { root, fsx } = setup(t);
+  assert.deepEqual(await fsx.append(join(root, 'a/b/c.md'), 'x'), { success: true });
+  assert.equal(fs.readFileSync(join(root, 'a', 'b', 'c.md'), 'utf-8'), 'x');
+});
+
+test('append refuses a directory, the vault root and paths outside the vault', async (t) => {
+  const { base, root, fsx } = setup(t);
+  fs.mkdirSync(join(root, 'dir'));
+  fs.writeFileSync(join(base, 'out.md'), 'secret');
+  for (const p of [join(root, 'dir'), root]) {
+    const r = await fsx.append(p, 'x');
+    assert.equal(r.success, false, p);
+    assert.equal(typeof r.error, 'string', p);
+  }
+  for (const p of [join(base, 'out.md'), join(root, '..', 'out.md'), '', undefined, 42]) {
+    const r = await fsx.append(p, 'x');
+    assert.equal(r.success, false, String(p));
+    assert.match(r.error, /outside the vault/, String(p));
+  }
+  assert.equal(fs.readFileSync(join(base, 'out.md'), 'utf-8'), 'secret');
+  assert.deepEqual(fs.readdirSync(join(root, 'dir')), []);
 });
 
 test('rename moves a file', async (t) => {
@@ -308,7 +342,7 @@ test('Windows path syntax that leaves the vault is refused by every op', { skip:
   };
   for (const [name, p] of Object.entries(rows)) {
     const results = await Promise.all([
-      fsx.read(p), fsx.write(p, 'x'), fsx.list(p), fsx.mkdir(p), fsx.remove(p),
+      fsx.read(p), fsx.write(p, 'x'), fsx.append(p, 'x'), fsx.list(p), fsx.mkdir(p), fsx.remove(p),
       fsx.rename(join(root, 'a.md'), p), fsx.rename(p, join(root, 'b.md')),
     ]);
     for (const r of results) {
