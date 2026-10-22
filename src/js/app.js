@@ -28,6 +28,7 @@ const App = {
   _starredNotes: new Set(JSON.parse(localStorage.getItem('cortex_starred') || '[]').filter(p => typeof p === 'string')), // drops a stored null
   _focusMode: false,
   _layoutMode: 'split', // split, editor, preview
+  _restoring: true, // no workspace saves until init's restore: before it, the empty startup state would overwrite the stored one
   _slashOpen: false,
   _slashQuery: '',
   _slashIndex: 0,
@@ -56,8 +57,9 @@ const App = {
     this.renderFileTree();
     this.updateTitleBar();
     this.setupMenuListeners();
-    await this.refreshIndex(); // the welcome stats read it
-    this.showWelcome();
+    await this.refreshIndex(); // the welcome stats and the restore read it
+    await this.restoreWorkspace();
+    this.showWelcome(); // only if nothing was restored
   },
 
   async refreshIndex() {
@@ -65,6 +67,46 @@ const App = {
     this._notes = notes;
     this._tags = tags;
     this._stemSet = new Set(notes.map(n => CortexLib.normalizeStem(n.stem)));
+  },
+
+  // Stores the open tabs, the active tab, the side panel and the layout under this vault's key. The hooks call it debounced;
+  // confirmFlush calls it directly, before a vault switch or close. Never during a restore or a vault switch's teardown: that
+  // would store a half-built or emptied workspace.
+  saveWorkspace() {
+    clearTimeout(this._debounceTimers.workspace); // a save now replaces a scheduled one
+    if (this._restoring || !this.vaultPath) return;
+    const workspace = { tabs: this.openTabs.map(t => t.path), active: this.activeTab, panel: this.sidebarPanel, layout: this._layoutMode };
+    try { localStorage.setItem('cortex_workspace:' + this.vaultPath, JSON.stringify(workspace)); } catch { /* full or blocked: just not restored */ }
+  },
+
+  // Reopens this vault's stored tabs (only those the index lists, so a missing note raises no alert), then the active tab, the
+  // layout and the panel. Only into an empty tab set; true if a tab was restored, otherwise nothing changes. Never throws.
+  async restoreWorkspace() {
+    this._restoring = true;
+    try {
+      if (this.openTabs.length) return false;
+      const vault = this.vaultPath;
+      let raw = null;
+      try { raw = localStorage.getItem('cortex_workspace:' + vault); } catch { /* blocked storage: nothing to restore */ }
+      const w = CortexLib.sanitizeWorkspace(raw);
+      const known = new Set(this._notes.map(n => CortexLib.pathKey(this.normPath(n.path))));
+      for (const p of w.tabs) {
+        if (known.has(CortexLib.pathKey(this.normPath(p)))) await this.openFile(p);
+        if (this.vaultPath !== vault) return false; // a vault switch overtook this restore: none of its paths may open now
+      }
+      if (!this.openTabs.length) return false;
+      const active = w.active && this.findTab(this.normPath(w.active));
+      if (active) this.switchTab(active.path);
+      if (w.layout !== this._layoutMode) this.setLayout(w.layout);
+      if (w.panel !== this.sidebarPanel) this.togglePanel(w.panel ?? this.sidebarPanel); // the same panel again collapses it
+      return true;
+    } catch (err) {
+      console.warn('workspace restore failed:', err);
+      return false;
+    } finally {
+      this._restoring = false;
+      clearTimeout(this._debounceTimers.workspace); // what the teardown and this restore scheduled would only store what was read
+    }
   },
 
   // Fresh index data for what shows it: the welcome stats and the open panel. Never the editor, the file tree or the search box.
@@ -95,11 +137,12 @@ const App = {
       this.vaultPath = path;
       this._recent = null; // the other vault has its own list
       this.closeSwitcher(); // it lists the old vault
+      this._restoring = true; // the teardown must not store an empty workspace under the new vault's key (restore clears it)
       [...this.openTabs].forEach(t => this.removeTab(t));
       this.showWelcome();
       this.updateTitleBar();
       this.renderFileTree();
-      this.onIndexUpdated();
+      this.onIndexUpdated().finally(() => this.restoreWorkspace());
     });
     window.cortex.index.onUpdated(() => this.debounce('index', () => this.onIndexUpdated(), 150));
     window.cortex.index.onFileChanged((path) => this.onExternalChange(path));
@@ -275,14 +318,18 @@ const App = {
 
   cycleLayout() {
     const modes = ['split', 'editor', 'preview'];
-    const idx = modes.indexOf(this._layoutMode);
-    this._layoutMode = modes[(idx + 1) % modes.length];
+    this.setLayout(modes[(modes.indexOf(this._layoutMode) + 1) % modes.length]);
+  },
+
+  setLayout(mode) {
+    this._layoutMode = mode;
     document.body.classList.remove('layout-editor-only', 'layout-preview-only');
-    if (this._layoutMode === 'editor') document.body.classList.add('layout-editor-only');
-    else if (this._layoutMode === 'preview') document.body.classList.add('layout-preview-only');
+    if (mode === 'editor') document.body.classList.add('layout-editor-only');
+    else if (mode === 'preview') document.body.classList.add('layout-preview-only');
     else {
       this.$('previewPane').classList.add('visible');
     }
+    this.debounce('workspace', () => this.saveWorkspace(), 300);
   },
 
   // ---- File Operations ----
@@ -401,6 +448,7 @@ const App = {
     if (this.sidebarPanel === 'backlinks') this.renderBacklinks(this.$('fileTree'));
     this.refreshOutline();
     if (tab) this.recordRecent(tab.path);
+    this.debounce('workspace', () => this.saveWorkspace(), 300);
   },
 
   renderTabs() {
@@ -420,6 +468,7 @@ const App = {
     });
     container.innerHTML = '';
     container.appendChild(fragment);
+    this.debounce('workspace', () => this.saveWorkspace(), 300);
   },
 
   updateTabStyles() {
@@ -462,6 +511,7 @@ const App = {
   // Runs when main is about to close the window or switch vault. true = go ahead; false = the user chose to keep editing.
   // Anything that cannot be saved is named to the user first: it would be lost for good.
   async confirmFlush(asking) {
+    this.saveWorkspace(); // now, under the vault being left: once main switches, vaultPath is the new one
     if (await this.flushSaves()) return true;
     const names = this.openTabs.filter(t => t.modified).map(t => t.name);
     asking(); // a native confirm blocks this window: tell main a person is deciding so its timeout does not close us underneath
@@ -1023,6 +1073,7 @@ const App = {
       });
       this.updatePanelContent(panel);
     }
+    this.debounce('workspace', () => this.saveWorkspace(), 300);
   },
 
   updatePanelContent(panel) {
