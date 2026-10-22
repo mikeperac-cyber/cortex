@@ -10,6 +10,7 @@
   // links, bare URLs, tags (as TAG). Each alternative stops at a fixed character, so a failed try never rescans the line.
   const NOT_PROSE = /!?\[\[[^\]\n]*\]{0,2}|\[[^[\]\n]*\]\([^)\n]*\)?|https?:\/\/\S+|(?<!\S)#[\p{L}\p{M}\p{N}_\-\/]+/gu;
   const WORD = /[\p{L}\p{M}\p{N}_]/u;
+  const NO_LEAD = /[\p{L}\p{M}\p{N}_[!]/u; // what a mention may not follow: a word, [ (it would read [[[stem]]]) or ! (an embed)
   const MAX_LINE = 10000; // longer lines are never searched for mentions
 
   const str = (s) => (typeof s === 'string' ? s : '');
@@ -136,7 +137,7 @@
       if (text.length > MAX_LINE || !text.normalize('NFC').toLowerCase().includes(key)) return; // most lines stop here
       const prose = text.replace(NOT_PROSE, blank);
       for (let col = 0; col + word.length <= prose.length; col++) {
-        if (WORD.test(prose[col - 1] || '') || WORD.test(prose[col + word.length] || '')) continue;
+        if (NO_LEAD.test(prose[col - 1] || '') || WORD.test(prose[col + word.length] || '')) continue;
         if (prose.slice(col, col + word.length).normalize('NFC').toLowerCase() !== key) continue;
         found.push({ line, col });
         col += word.length - 1; // the next one starts after this one

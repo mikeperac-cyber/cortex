@@ -86,6 +86,11 @@ test('findMentions: linear on pathological lines; an unclosed [[ hides the rest 
   assert.equal(findMentions(('Target ' + '[['.repeat(4990) + ' Target\n').repeat(50), 'Target').length, 50);
   assert.deepEqual(findMentions('[[x [Target]] [[Target', 'Target'), []);
   assert.ok(Date.now() - t0 < 500, `took ${Date.now() - t0} ms`); });
+test('findMentions: never right after [ (bracket, reference, escaped, unclosed, nested link text) or ! (an embed)', () => {
+  assert.deepEqual(findMentions('[Target] [Target][1] \\[Target\\] [Target x', 'Target'), []);
+  assert.deepEqual(findMentions('[a [Target] b](url) wow!Target', 'Target'), []);
+  assert.equal(linkMention('see [Target] here', { line: 0, col: 5 }, 'Target'), null);
+  assert.deepEqual(findMentions('[x] Target! (Target)', 'Target'), [{ line: 0, col: 4 }, { line: 0, col: 13 }]); });
 test('linkMention: a position that is not a mention, or a bad one, gives null', () => {
   for (const m of [{ line: 0, col: 5 }, { line: 1, col: 0 }, null, {}]) assert.equal(linkMention('see Target', m, 'Target'), null); });
 test('rewriteLinks: a decomposed spelling matches the precomposed stem', () => assert.equal(r('[[Ça]]', 'Ça', 'B'), '[[B]]'));
