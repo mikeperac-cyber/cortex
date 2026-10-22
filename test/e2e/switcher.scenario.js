@@ -150,6 +150,40 @@ module.exports = {
     assert.equal(await visible(), false, 'opening the palette left the switcher open');
     await js('App.closeCommandPalette(); 0');
 
+    // The switcher has been used and closed: its rows must not be left for the palette's own keys to latch on to
+    assert.equal(await js('document.getElementById("switcherResults").children.length'), 0, 'a closed switcher kept its rows');
+    const tabsBefore = await js('App.openTabs.length');
+    const activeBefore = await js('App.activeTab');
+    const paletteQuery = (text) => js(`(() => {
+      const input = document.getElementById('commandInput');
+      input.value = ${JSON.stringify(text)};
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    })()`);
+    // (a decoy with the same classes elsewhere in the page stands for any such row: the palette must never act on it)
+    await js(`(() => {
+      const decoy = document.createElement('div');
+      decoy.id = 'decoyRow';
+      decoy.className = 'command-result-item selected';
+      decoy.addEventListener('click', () => { window.__decoyClicked = true; });
+      document.body.append(decoy);
+    })()`);
+    await js('App.openCommandPalette(); 0');
+    await paletteQuery('zzzzqq');
+    await key('Enter', {}, 'commandInput');
+    await sleep(200); // negative check: nothing may happen
+    assert.equal(await js('App.openTabs.length'), tabsBefore, 'Enter on a no-result palette opened a note');
+    assert.equal(await js('App.activeTab'), activeBefore);
+    assert.equal(await js('window.__decoyClicked'), undefined, 'Enter in the palette clicked a row outside it');
+    assert.equal(await js('document.getElementById("commandPaletteOverlay").classList.contains("visible")'), true);
+    await paletteQuery('');
+    const commands = await js('document.querySelectorAll("#commandResults .command-result-item").length');
+    for (let i = 0; i < commands + 3; i++) await key('ArrowDown', {}, 'commandInput'); // past the last row: it stays there
+    assert.deepEqual(
+      await js(`[...document.querySelectorAll('#commandResults .command-result-item')].map((r) => r.classList.contains('selected'))`),
+      Array.from({ length: commands }, (_, i) => i === commands - 1), 'ArrowDown past the last command lost the selection');
+    assert.equal(await js('document.getElementById("decoyRow").classList.contains("selected")'), true, 'the palette changed a row outside it');
+    await js('document.getElementById("decoyRow").remove(); App.closeCommandPalette(); 0');
+
     // Recents are stored per vault, as keys, newest first
     const stored = () => js('JSON.parse(localStorage.getItem("cortex_recent:" + App.vaultPath))');
     assert.deepEqual(await stored(), [await keyOf(path.join(vault, 'Beta.md')), await keyOf(path.join(vault, 'Alpha.md')), await keyOf(path.join(vault, 'Çalışma.md'))]);

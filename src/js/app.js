@@ -1262,6 +1262,8 @@ const App = {
     const overlay = this.$('switcherOverlay');
     if (!overlay.classList.contains('visible')) return;
     overlay.classList.remove('visible');
+    this.$('switcherResults').replaceChildren(); // no hidden rows left to be mistaken for live ones
+    this._switcherRows = [];
     const opener = this._switcherOpener;
     this._switcherOpener = null;
     if (opener && opener.isConnected) opener.focus(); // as Dialogs.ask does
@@ -1430,14 +1432,15 @@ const App = {
     if (cmdInput) {
       cmdInput.addEventListener('input', (e) => this.renderCommandResults(e.target.value));
       cmdInput.addEventListener('keydown', (e) => {
+        const results = this.$('commandResults'); // the switcher's rows share these classes: never look beyond the palette's own list
         if (e.key === 'Enter') {
-          const selected = document.querySelector('.command-result-item.selected');
+          const selected = results.querySelector('.command-result-item.selected');
           if (selected) selected.click();
         }
         if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
           e.preventDefault();
-          const items = document.querySelectorAll('.command-result-item');
-          const current = document.querySelector('.command-result-item.selected');
+          const items = results.querySelectorAll('.command-result-item');
+          const current = results.querySelector('.command-result-item.selected');
           let idx = Array.from(items).indexOf(current);
           if (e.key === 'ArrowDown') idx = Math.min(idx + 1, items.length - 1);
           else idx = Math.max(idx - 1, 0);
