@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { parseNote, normalizeStem, rewriteLinks } = require('../../src/lib/note-parse');
+const { parseNote, normalizeStem, rewriteLinks, findMentions, linkMention } = require('../../src/lib/note-parse');
 
 const p = parseNote;
 test('wikilink forms', () => {
@@ -64,4 +64,28 @@ test('rewriteLinks: frontmatter is skipped as parseNote skips it; CRLF fences hi
   assert.equal(r('﻿---\r\nup: [[Old]]\r\n---\r\n```\r\n[[Old]]\r\n```\r\n[[Old]]', 'Old', 'New'), '﻿---\r\nup: [[Old]]\r\n---\r\n```\r\n[[Old]]\r\n```\r\n[[New]]'));
 test('rewriteLinks: a padded target is replaced in place; [[#H]] and an alias that names the stem are not links to it', () =>
   assert.equal(r('[[ Old ]] [[#Old]] [[X|Old]] [[X#Old]]', 'old', 'New'), '[[ New ]] [[#Old]] [[X|Old]] [[X#Old]]'));
+
+test('findMentions: whole words, any case, any number per line, original coordinates', () => {
+  assert.deepEqual(findMentions('---\na: b\n---\nI read Target; target! Targets no', 'Target'), [{ line: 3, col: 7 }, { line: 3, col: 15 }]); });
+test('findMentions: skips links, code, URLs, link targets, frontmatter; short stems', () => {
+  assert.deepEqual(findMentions('[[Target]] [[Target|x]] `Target` ![[Target]] [t](http://x/Target) https://x/Target\n~~~\nTarget\n~~~', 'Target'), []);
+  assert.deepEqual(findMentions('---\ntitle: Target\n---\nbody', 'Target'), []); assert.deepEqual(findMentions('ab ab', 'ab'), []); });
+test('findMentions: non-ASCII and CRLF', () => assert.deepEqual(findMentions('x\r\nsee çalışma', 'Çalışma'), [{ line: 1, col: 4 }]));
+test('linkMention: exact case -> [[Stem]], other case keeps the text as alias, stale -> null', () => {
+  assert.equal(linkMention('see Target now', { line: 0, col: 4 }, 'Target'), 'see [[Target]] now');
+  assert.equal(linkMention('see target now', { line: 0, col: 4 }, 'Target'), 'see [[Target|target]] now');
+  assert.equal(linkMention('see [[Target]] now', { line: 0, col: 6 }, 'Target'), null);
+  assert.equal(linkMention('a\r\nsee Target', { line: 1, col: 4 }, 'Target'), 'a\r\nsee [[Target]]'); });
+test('findMentions: link text and tags are not prose; a BOM is no column; over-long lines are skipped', () => {
+  assert.deepEqual(findMentions('[Target](x) #target #a/target Target', 'Target'), [{ line: 0, col: 30 }]);
+  assert.deepEqual(findMentions('﻿Target', 'Target'), [{ line: 0, col: 0 }]);
+  assert.equal(linkMention('﻿Target', { line: 0, col: 0 }, 'Target'), '﻿[[Target]]');
+  assert.deepEqual(findMentions('Target ' + 'x'.repeat(10000), 'Target'), []); });
+test('findMentions: linear on pathological lines; an unclosed [[ hides the rest of its line', () => {
+  const t0 = Date.now();
+  assert.equal(findMentions(('Target ' + '[['.repeat(4990) + ' Target\n').repeat(50), 'Target').length, 50);
+  assert.deepEqual(findMentions('[[x [Target]] [[Target', 'Target'), []);
+  assert.ok(Date.now() - t0 < 500, `took ${Date.now() - t0} ms`); });
+test('linkMention: a position that is not a mention, or a bad one, gives null', () => {
+  for (const m of [{ line: 0, col: 5 }, { line: 1, col: 0 }, null, {}]) assert.equal(linkMention('see Target', m, 'Target'), null); });
 test('rewriteLinks: a decomposed spelling matches the precomposed stem', () => assert.equal(r('[[Ça]]', 'Ça', 'B'), '[[B]]'));

@@ -1153,16 +1153,42 @@ const App = {
     container.appendChild(fragment);
   },
 
-  // The notes linking to the active one, each with the line that links. Pass the tab path as is: the index resolves it.
+  // The notes linking to the active one, each with the line that links; then the notes naming it in plain text, each with a Link
+  // button. Pass the tab path as is: the index resolves it.
   async renderBacklinks(container) {
     const tab = this.activeTab;
     if (!tab) { container.replaceChildren(this.panelNote('Select a note to see backlinks.')); return; }
-    const links = await window.cortex.index.backlinks(tab);
+    const [links, mentions] = await Promise.all([window.cortex.index.backlinks(tab), window.cortex.index.mentions(tab)]);
     if (this.sidebarPanel !== 'backlinks' || this.activeTab !== tab) return; // the user moved on while we asked
-    if (!links.length) { container.replaceChildren(this.panelNote('No backlinks found.')); return; }
-    const header = this.panelNote(links.length + (links.length === 1 ? ' backlink' : ' backlinks'));
-    header.classList.add('panel-heading');
-    container.replaceChildren(header, ...links.map(b => this.panelRow(b.path, b.stem, b.text.trim())));
+    const heading = (text) => { const el = this.panelNote(text); el.classList.add('panel-heading'); return el; };
+    const rows = links.length
+      ? [heading(links.length + (links.length === 1 ? ' backlink' : ' backlinks')), ...links.map(b => this.panelRow(b.path, b.stem, b.text.trim()))]
+      : [this.panelNote('No backlinks found.')];
+    if (mentions.length) rows.push(heading('Unlinked mentions (' + mentions.length + ')'), ...mentions.map(m => {
+      const row = this.panelRow(m.path, m.stem, m.text.trim());
+      const link = document.createElement('button');
+      link.className = 'mention-link';
+      link.textContent = 'Link';
+      link.addEventListener('click', (e) => { e.stopPropagation(); this.linkMention(m, tab); }); // the row's own click opens the note
+      row.append(link);
+      return row;
+    }));
+    container.replaceChildren(...rows);
+  },
+
+  // Turns one unlinked mention of `target` into a wikilink, on disk. The source's open tab is saved first, or its later autosave
+  // would write the old text over the link; main refuses if the mention is no longer exactly where the index saw it.
+  async linkMention(m, target = this.activeTab) {
+    const tab = this.findTab(this.normPath(m.path));
+    if (tab?.changedOnDisk) { // saving it first would write the tab over that outside change: only an explicit save may
+      alert('"' + tab.name + '" changed on disk while it has unsaved edits. Save it first (Ctrl+S keeps yours), then link again.');
+      return;
+    }
+    if (tab && !(await this.flushTab(tab))) { alert('Could not link: "' + tab.name + '" could not be saved first (' + tab.saveError + ')'); return; }
+    const result = await window.cortex.linkMention(m.path, m.line, m.col, target);
+    if (result.success) this.notice('Linked in ' + m.stem);
+    else alert(result.stale ? 'That note changed — the list was refreshed.' : 'Could not link: ' + result.error);
+    if (this.sidebarPanel === 'backlinks') this.renderBacklinks(this.$('fileTree')); // the index echo comes later
   },
 
   // Redraws the outline from the editor text (unsaved typing included), but only while that panel is the open one.

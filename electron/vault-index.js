@@ -1,6 +1,6 @@
 const fs = require('fs/promises');
 const path = require('path');
-const { parseNote, normalizeStem } = require('../src/lib/note-parse.js');
+const { parseNote, normalizeStem, findMentions } = require('../src/lib/note-parse.js');
 
 const POOL = 16; // concurrent file reads
 const MD = /\.md$/i;
@@ -224,6 +224,28 @@ class VaultIndex {
     return [...(this._view().incoming.get(e) || [])]
       .sort((a, b) => cmp(a.src.norm.stem, b.src.norm.stem) || cmp(a.src.key, b.src.key) || a.line - b.line)
       .map(({ src, line }) => ({ path: src.meta.path, stem: src.meta.stem, line, text: textOf(src, line) }));
+  }
+
+  // Other notes naming this one in plain text: one row per occurrence, with its line. Only the note [[stem]] resolves to has any,
+  // since linking a mention of a shadowed same-named note would point at the other one.
+  // shortcut: scans every note's content per call, upgrade to an inverted index past ~5k notes
+  mentions(absPath, limit = 200) {
+    if (typeof absPath !== 'string' || !absPath) return [];
+    const e = this._store.get(path.resolve(absPath).toLowerCase());
+    const v = this._view();
+    if (!e || v.byStem.get(e.norm.stem) !== e) return [];
+    const hits = [];
+    const sources = v.sorted.filter((s) => s !== e && s.norm.body.includes(e.norm.stem)) // cheap pre-check on the folded body
+      .sort((a, b) => cmp(a.norm.stem, b.norm.stem) || cmp(a.key, b.key));
+    for (const s of sources) {
+      const found = findMentions(s.content, e.meta.stem);
+      const lines = found.length ? splitLines(s.content) : null;
+      for (const { line, col } of found) {
+        if (hits.length >= limit) return hits;
+        hits.push({ path: s.meta.path, stem: s.meta.stem, line, col, text: lines[line] });
+      }
+    }
+    return hits;
   }
 
   tags() {

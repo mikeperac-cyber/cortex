@@ -3,7 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const { createVaultFs } = require('./vault-fs');
 const { VaultIndex } = require('./vault-index');
-const { normalizeStem, rewriteLinks } = require('../src/lib/note-parse.js');
+const { normalizeStem, rewriteLinks, linkMention } = require('../src/lib/note-parse.js');
 const { isSafeExternalUrl } = require('./security');
 
 let mainWindow;
@@ -237,6 +237,8 @@ ipcMain.handle('list-files', (event, dirPath) => vaultFs.list(dirPath));
 ipcMain.handle('create-folder', (event, folderPath) => vaultFs.mkdir(folderPath));
 ipcMain.handle('delete-file', (event, filePath) => vaultFs.remove(filePath));
 ipcMain.handle('rename-file', (event, oldPath, newPath) => renameNote(oldPath, newPath).catch((err) => ({ success: false, error: err.message })));
+ipcMain.handle('link-mention', (event, sourcePath, line, col, targetPath) => linkMentionAt(sourcePath, line, col, targetPath)
+  .catch((err) => ({ success: false, error: err.message })));
 
 // A call made during a vault switch must not see the old vault: wait until the newest reset has settled.
 async function indexSettled() {
@@ -283,6 +285,28 @@ async function renameNote(oldPath, newPath) {
   return reply;
 }
 
+// Turns the plain-text mention at (line, col) of sourcePath into a wikilink to targetPath, which must be the note its stem
+// resolves to. The source is read fresh: if the mention is no longer exactly there, nothing is written and the reply says stale.
+async function linkMentionAt(sourcePath, line, col, targetPath) {
+  if (mdStem(needString(sourcePath, 'source')) === null) return { success: false, error: 'Not a note' };
+  if (![line, col].every((n) => Number.isInteger(n) && n >= 0)) return { success: false, error: 'Invalid position' };
+  const targetStem = mdStem(needString(targetPath, 'target'));
+  await indexSettled();
+  const target = targetStem === null ? null : index.resolve(targetStem);
+  if (!target || target.path.toLowerCase() !== path.resolve(targetPath).toLowerCase()) return { success: false, error: 'Unknown target note' };
+  const read = await vaultFs.read(sourcePath); // confined to the vault
+  if (!read.success) return read;
+  const next = linkMention(read.content, { line, col }, target.stem);
+  if (next === null) return { success: false, error: 'The note changed', stale: true };
+  const written = await vaultFs.write(sourcePath, next);
+  if (!written.success) return written;
+  const source = path.resolve(sourcePath);
+  await index.update(source);
+  notify('vault:file-changed', source); // the watcher then finds nothing new: open tabs and panels hear it from here
+  scheduleIndexUpdated();
+  return { success: true };
+}
+
 const needString = (value, name) => {
   if (typeof value !== 'string') throw new TypeError(`${name} must be a string`);
   return value;
@@ -302,6 +326,7 @@ function handleIndex(channel, key, empty, answer) {
 handleIndex('index:notes', 'notes', [], () => index.notes());
 handleIndex('index:resolve', 'note', null, (target) => index.resolve(needString(target, 'target')));
 handleIndex('index:backlinks', 'backlinks', [], (absPath) => index.backlinks(needString(absPath, 'path')));
+handleIndex('index:mentions', 'mentions', [], (absPath) => index.mentions(needString(absPath, 'path')));
 handleIndex('index:tags', 'tags', [], () => index.tags());
 handleIndex('index:graph', 'graph', { nodes: [], edges: [] }, () => index.graph());
 handleIndex('index:search', 'results', [], (query, limit) => index.search(

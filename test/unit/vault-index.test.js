@@ -116,6 +116,26 @@ test('backlinks: path keys are case-insensitive and accept forward slashes; unkn
   assert.deepEqual(idx.backlinks(undefined), []);
 });
 
+test('mentions: plain-text mentions in other notes by stem then position, CRLF-clean text; self excluded; limit; unknown path', async (t) => {
+  const { root, idx } = await indexed(t, {
+    'Target.md': 'Target names itself',
+    'B.md': 'x\r\nsee target and [[Target]] and TARGET\r\n',
+    'A.md': 'Target first',
+    'Other.md': 'nothing here',
+    'sub/Target.md': 'a shadowed duplicate',
+  });
+  const target = join(root, 'Target.md');
+  assert.deepEqual(idx.mentions(target), [
+    { path: join(root, 'A.md'), stem: 'A', line: 0, col: 0, text: 'Target first' },
+    { path: join(root, 'B.md'), stem: 'B', line: 1, col: 4, text: 'see target and [[Target]] and TARGET' },
+    { path: join(root, 'B.md'), stem: 'B', line: 1, col: 30, text: 'see target and [[Target]] and TARGET' },
+  ]);
+  assert.deepEqual(idx.mentions(target, 2).map((m) => [m.stem, m.col]), [['A', 0], ['B', 4]]);
+  assert.deepEqual(idx.mentions(join(root, 'sub', 'Target.md')), [], '[[Target]] would not point at the shadowed note');
+  assert.deepEqual(idx.mentions(join(root, 'Nope.md')), []);
+  assert.deepEqual(idx.mentions(undefined), []);
+});
+
 test('graph: ids are paths, labels are stems, deduped edges, self and unresolved dropped', async (t) => {
   const { root, idx } = await indexed(t, {
     'A.md': '[[B]]\n[[b|again]]\n[[A]] [[Missing]]', 'B.md': '[[A#H]]', 'C.md': '',

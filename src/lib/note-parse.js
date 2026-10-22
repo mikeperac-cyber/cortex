@@ -6,6 +6,11 @@
   const LINK = /!?\[\[([^\]\n]+)\]\]/g;
   const TAG = /(?:^|\s)#([\p{L}\p{M}\p{N}_\-\/]+)/gu; // \p{M}: a decomposed (NFD) letter keeps its combining marks
   const FM_KEY = /^([\p{L}\p{N}_\-]+):\s*(.*?)\s*$/u;
+  // Not prose: wikilinks and embeds (any [[ up to its first ], so an unclosed one hides the rest of the line), whole [text](target)
+  // links, bare URLs, tags (as TAG). Each alternative stops at a fixed character, so a failed try never rescans the line.
+  const NOT_PROSE = /!?\[\[[^\]\n]*\]{0,2}|\[[^[\]\n]*\]\([^)\n]*\)?|https?:\/\/\S+|(?<!\S)#[\p{L}\p{M}\p{N}_\-\/]+/gu;
+  const WORD = /[\p{L}\p{M}\p{N}_]/u;
+  const MAX_LINE = 10000; // longer lines are never searched for mentions
 
   const str = (s) => (typeof s === 'string' ? s : '');
   const normalizeStem = (s) => str(s).normalize('NFC').toLowerCase().trim();
@@ -81,15 +86,25 @@
     return { frontmatter, title, headings, tags, links };
   }
 
+  // BOM, lines without their breaks (as maskCode needs), and the breaks: `bom + parts.join('')` is the content again
+  function splitKeep(content) {
+    const src = str(content);
+    const bom = src[0] === '﻿' ? '﻿' : '';
+    const parts = src.slice(bom.length).split(/(\r?\n)/); // even: lines, odd: their line breaks
+    return { src, bom, parts, lines: parts.filter((_, i) => i % 2 === 0) };
+  }
+
+  // The lines as parseNote reads them: frontmatter emptied, code blanked, count and lengths kept
+  function maskBody(lines) {
+    const end = frontEnd(lines);
+    return maskCode(lines.map((l, i) => (i <= end ? '' : l)));
+  }
+
   // Points every link whose target is oldStem at newStem, keeping alias, heading, embed and everything else byte for byte.
   // Links are found exactly as parseNote finds them (masked code and frontmatter skipped); the text replaced is the original's.
   function rewriteLinks(content, oldStem, newStem) {
-    const src = str(content);
-    const bom = src[0] === '﻿' ? '﻿' : '';
-    const parts = src.slice(bom.length).split(/(\r?\n)/); // even: lines (no \r, as maskCode needs), odd: their line breaks
-    const lines = parts.filter((_, i) => i % 2 === 0);
-    const end = frontEnd(lines);
-    const masked = maskCode(lines.map((l, i) => (i <= end ? '' : l)));
+    const { src, bom, parts, lines } = splitKeep(content);
+    const masked = maskBody(lines);
     const key = normalizeStem(oldStem);
     let changed = false;
     lines.forEach((line, k) => {
@@ -109,7 +124,45 @@
     return changed ? bom + parts.join('') : src;
   }
 
-  const api = { normalizeStem, parseNote, rewriteLinks };
+  // Whole-word occurrences of stem in the prose of lines, ignoring case and Unicode form. Frontmatter, code and NOT_PROSE spans
+  // are skipped; they are blanked to same-length filler, so a column is one of the original line.
+  // shortcut: same-length slice compare, upgrade if Unicode folding changes length
+  function mentionsIn(lines, stem) {
+    const word = str(stem).normalize('NFC').trim();
+    const key = word.toLowerCase(); // normalizeStem(stem)
+    const found = [];
+    if (word.length < 3) return found;
+    maskBody(lines).forEach((text, line) => {
+      if (text.length > MAX_LINE || !text.normalize('NFC').toLowerCase().includes(key)) return; // most lines stop here
+      const prose = text.replace(NOT_PROSE, blank);
+      for (let col = 0; col + word.length <= prose.length; col++) {
+        if (WORD.test(prose[col - 1] || '') || WORD.test(prose[col + word.length] || '')) continue;
+        if (prose.slice(col, col + word.length).normalize('NFC').toLowerCase() !== key) continue;
+        found.push({ line, col });
+        col += word.length - 1; // the next one starts after this one
+      }
+    });
+    return found;
+  }
+
+  // 0-based { line, col } of every plain-text mention of stem; frontmatter lines count, a BOM and \r do not.
+  function findMentions(content, stem) {
+    return mentionsIn(splitKeep(content).lines, stem);
+  }
+
+  // The content with the mention at m turned into [[stem]] ([[stem|text]] when its spelling differs); null unless m is still
+  // a mention there. Line breaks and BOM stay as they were.
+  function linkMention(content, m, stem) {
+    const { bom, parts, lines } = splitKeep(content);
+    const { line, col } = m || {};
+    if (!mentionsIn(lines, stem).some((x) => x.line === line && x.col === col)) return null;
+    const word = str(stem).normalize('NFC').trim();
+    const text = lines[line].slice(col, col + word.length);
+    parts[2 * line] = lines[line].slice(0, col) + '[[' + (text === stem ? stem : stem + '|' + text) + ']]' + lines[line].slice(col + word.length);
+    return bom + parts.join('');
+  }
+
+  const api = { normalizeStem, parseNote, rewriteLinks, findMentions, linkMention };
   if (typeof module !== 'undefined') module.exports = api;
   else window.CortexLib = Object.assign(window.CortexLib || {}, api);
 })();
