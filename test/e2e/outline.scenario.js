@@ -63,6 +63,12 @@ module.exports = {
     await click('Deep');
     assert.equal(await ta('t.selectionStart'), await ta('t.value.indexOf("### Deep")'));
     assert.equal(await js('document.getElementById("statusbarCursor").textContent'), 'Ln 7, Col 1');
+    // The preview-only layout hides the editor (and workspace restore keeps it across launches): a jump brings the split back
+    await js("App.setLayout('preview'); 0");
+    await click('Sub');
+    assert.equal(await js('App._layoutMode'), 'split', 'a jump left the editor hidden');
+    assert.equal(await ta('document.activeElement === t'), true, 'the editor did not get focus in the preview-only layout');
+    assert.equal(await ta('t.selectionStart'), 11);
 
     // Typing: a new heading shows up within 1.5 s (unsaved text included), the editor keeps focus, markup stays text
     await typeMore('\n#### New');

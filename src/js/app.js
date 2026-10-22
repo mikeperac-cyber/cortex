@@ -1268,6 +1268,7 @@ const App = {
   // Caret to the start of 0-based `line` of the editor, which gets focus and scrolls there. The textarea's value is LF-only even
   // for a CRLF note, so its line numbers are the file's. blur + focus: focus() is what scrolls a textarea to its caret in Chromium.
   jumpToLine(line) {
+    if (this._layoutMode === 'preview') this.setLayout('split'); // preview-only hides the editor: a jump must show it
     const ta = this.$('editorTextarea');
     const at = ta.value.split('\n').slice(0, line).reduce((n, l) => n + l.length + 1, 0);
     ta.blur();
