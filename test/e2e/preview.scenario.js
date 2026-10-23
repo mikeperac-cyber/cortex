@@ -6,7 +6,7 @@ const { BrowserWindow, ipcMain, shell } = require('electron');
 // Preview interactions: a wikilink opens its note (or creates it after a confirm), a task checkbox edits the source and saves,
 // external links go through the open-external bridge, and nothing the page does can navigate or spawn a window.
 module.exports = {
-  seed: { 'A.md': '[[B]] [[Missing]] [[bad:name]]\n- [ ] t1\n- [ ] t2\n[ext](https://example.com)', 'B.md': '# B' },
+  seed: { 'A.md': '[[B]] [[Missing]] [[bad:name]]\n- [ ] t1\n- [ ] t2\n[ext](https://example.com)', 'B.md': '# B\n- [ ] b1' },
 
   async run({ win, vault, js, sleep }) {
     const poll = async (check, what, ms = 5000) => {
@@ -62,6 +62,26 @@ module.exports = {
     await poll(() => external.length === 1, 'the external link to reach the bridge');
     assert.equal(external[0], 'https://example.com');
     assert.equal(win.webContents.getURL(), url, 'the window navigated');
+
+    // A stale preview never toggles: edit A, switch to B inside the 100 ms render debounce, click B's box -> B's own task toggles
+    const aPath = path.join(vault, 'A.md');
+    const bPath = path.join(vault, 'B.md');
+    await js(`App.openFile(${JSON.stringify(aPath)})`);
+    await poll(() => js('!!document.querySelector("#previewContent a.wikilink")'), 'A preview');
+    await js(`(() => { const t = document.getElementById('editorTextarea'); t.value = '- [ ] a1\\n- [ ] a2\\n- [ ] a3\\n'; App.onEditorInput();
+      App.switchTab(${JSON.stringify(bPath)}); })(); 0`);
+    await sleep(300); // the cancelled render must not land over B's preview
+    assert.ok(!(await js('document.getElementById("previewContent").textContent.includes("a3")')), 'A\'s render landed on B');
+    await js('document.querySelector("#previewContent input[data-task=\\"0\\"]").click(); 0');
+    await poll(() => fs.readFileSync(bPath, 'utf8').includes('- [x] b1'), 'B\'s own task to toggle');
+    await poll(() => !/\[x\] a/.test(fs.readFileSync(aPath, 'utf8')) && fs.readFileSync(aPath, 'utf8').includes('a3'), 'A to autosave untouched');
+
+    // Same note: insert a task above and click at once on the older render -> nothing toggles, the preview refreshes
+    await js(`(() => { const t = document.getElementById('editorTextarea'); t.value = '- [ ] new\\n' + t.value; App.onEditorInput();
+      document.querySelector('#previewContent input[data-task="0"]').click(); })(); 0`);
+    await poll(() => js('document.querySelectorAll("#previewContent input[data-task]").length === 2'), 'the refreshed preview');
+    const text = await js('document.getElementById("editorTextarea").value');
+    assert.equal(text, '- [ ] new\n# B\n- [x] b1', 'a stale click changed the text: ' + JSON.stringify(text));
 
     // The guards: window.open spawns nothing (a safe URL goes to the shell), and navigating the page is refused
     await js("window.open('https://example.com'); 0");

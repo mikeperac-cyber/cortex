@@ -672,6 +672,7 @@ const App = {
       if (!tab.modified) { tab.modified = true; this.updateTabStyles(); }
       this.scheduleSave(tab);
     }
+    this._previewStale = true; // the checkbox indices on screen no longer match the text until the render lands
     this.debounce('preview', () => this.updatePreview(content), 100);
     if (this.sidebarPanel === 'outline') this.debounce('outline', () => this.refreshOutline(), 300);
     this.updateStatusBar(content);
@@ -992,6 +993,8 @@ const App = {
   // ---- Preview ----
 
   updatePreview(markdown) {
+    clearTimeout(this._debounceTimers.preview); // every render supersedes a pending one: a late stale render must not land
+    this._previewStale = false;
     // safe for innerHTML: the renderer escapes raw HTML and drops unsafe URLs. Resolution is by stem only ([[sub/Note]] shows unresolved).
     this.$('previewContent').innerHTML = CortexLib.renderMarkdown(markdown || '', { isResolved: (t) => this._stemSet.has(CortexLib.normalizeStem(t)) });
   },
@@ -1008,6 +1011,7 @@ const App = {
 
   toggleTask(n) {
     const textarea = this.$('editorTextarea');
+    if (this._previewStale) { this.updatePreview(textarea.value); return; } // the clicked box came from older text: refresh, don't guess
     const next = CortexLib.toggleTaskByIndex(textarea.value, n);
     if (next === textarea.value) return;
     textarea.value = next;
