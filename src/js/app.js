@@ -777,31 +777,37 @@ const App = {
   insertSlashCommand(text) {
     const textarea = this.$('editorTextarea');
     const cursorPos = textarea.selectionStart;
-    const content = textarea.value;
-    const beforeCursor = content.substring(0, cursorPos);
-    const afterCursor = content.substring(cursorPos);
+    const beforeCursor = textarea.value.substring(0, cursorPos);
     const slashMatch = beforeCursor.match(/\/(\w*)$/);
-    const newBefore = slashMatch ? beforeCursor.replace(/\/(\w*)$/, text) : beforeCursor + text;
-    textarea.value = newBefore + afterCursor;
-    textarea.selectionStart = textarea.selectionEnd = newBefore.length;
-    textarea.focus();
+    const from = slashMatch ? cursorPos - slashMatch[0].length : cursorPos;
     this.hideSlashPalette();
-    this.onEditorInput(); // assigning .value fires no `input` event: tab.content, autosave and the preview must hear of it
+    this.applyEdit({ from, to: cursorPos, insert: text, selStart: from + text.length, selEnd: from + text.length });
   },
 
   insertWikilink(name) {
     const textarea = this.$('editorTextarea');
     const cursorPos = textarea.selectionStart;
-    const content = textarea.value;
-    const beforeCursor = content.substring(0, cursorPos);
-    const afterCursor = content.substring(cursorPos);
+    const beforeCursor = textarea.value.substring(0, cursorPos);
     const match = beforeCursor.match(/\[\[([^\]]*)$/);
-    const newBefore = match ? beforeCursor.replace(/\[\[([^\]]*)$/, `[[${name}]]`) : beforeCursor + `[[${name}]]`;
-    textarea.value = newBefore + afterCursor;
-    textarea.selectionStart = textarea.selectionEnd = newBefore.length;
-    textarea.focus();
+    const from = match ? cursorPos - match[0].length : cursorPos;
+    const insert = `[[${name}]]`;
     this.hideWikilinkAutocomplete();
-    this.onEditorInput(); // as in insertSlashCommand
+    this.applyEdit({ from, to: cursorPos, insert, selStart: from + insert.length, selEnd: from + insert.length });
+  },
+
+  // Every edit the editor makes itself goes through here: execCommand keeps the native undo stack (assigning .value wipes it)
+  // and fires a real `input` event, so onEditorInput updates the tab, schedules the save and the preview.
+  applyEdit({ from, to, insert, selStart, selEnd }) {
+    const textarea = this.$('editorTextarea');
+    textarea.focus({ preventScroll: true }); // execCommand edits only the focused element
+    if (textarea.value.slice(from, to) !== insert) {
+      textarea.setSelectionRange(from, to);
+      if (!document.execCommand(insert === '' ? 'delete' : 'insertText', false, insert)) {
+        textarea.value = textarea.value.slice(0, from) + insert + textarea.value.slice(to); // never lose the edit: no undo, but it lands
+        this.onEditorInput();
+      }
+    }
+    textarea.setSelectionRange(selStart, selEnd);
   },
 
   // Writes the tab's text; resolves true once it is on disk. `modified` means "not yet on disk": it is cleared only after the
@@ -892,6 +898,7 @@ const App = {
   },
 
   onEditorKeydown(e) {
+    if (e.isComposing) return; // Enter / Tab / arrows belong to the input method until the text is committed
     if (this._slashOpen) {
       const items = document.querySelectorAll('.slash-item');
       if (e.key === 'ArrowDown') {
@@ -938,15 +945,15 @@ const App = {
       }
     }
 
-    if (e.key === 'Tab') {
-      e.preventDefault();
-      const textarea = e.target;
-      const start = textarea.selectionStart;
-      const end = textarea.selectionEnd;
-      textarea.value = textarea.value.substring(0, start) + '  ' + textarea.value.substring(end);
-      textarea.selectionStart = textarea.selectionEnd = start + 2;
-      this.onEditorInput(); // as in insertSlashCommand
-    }
+    // the palettes above own Enter / Tab while open; e.code for Ctrl+B/I as in onGlobalKeydown (Caps Lock)
+    const { value, selectionStart: start, selectionEnd: end } = e.target;
+    let edit = null;
+    if (e.key === 'Tab' && !e.ctrlKey && !e.altKey && !e.metaKey) edit = CortexLib.indentSelection(value, start, end, e.shiftKey);
+    else if (e.key === 'Enter' && start === end && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) edit = CortexLib.continueList(value, start);
+    else if (e.ctrlKey && !e.altKey && !e.shiftKey && (e.code === 'KeyB' || e.code === 'KeyI')) edit = CortexLib.toggleWrap(value, start, end, e.code === 'KeyB' ? '**' : '*');
+    if (!edit) return;
+    e.preventDefault();
+    this.applyEdit(edit);
   },
 
   onGlobalKeydown(e) {
@@ -1012,10 +1019,14 @@ const App = {
   toggleTask(n) {
     const textarea = this.$('editorTextarea');
     if (this._previewStale) { this.updatePreview(textarea.value); return; } // the clicked box came from older text: refresh, don't guess
-    const next = CortexLib.toggleTaskByIndex(textarea.value, n);
-    if (next === textarea.value) return;
-    textarea.value = next;
-    this.onEditorInput(); // as in insertSlashCommand: updates the tab, schedules the save and re-renders
+    const old = textarea.value;
+    const next = CortexLib.toggleTaskByIndex(old, n);
+    if (next === old) return;
+    let a = 0, b = 0; // replace only the changed span (the box character): the caret stays and undo unticks
+    while (old[a] === next[a]) a++;
+    while (b < old.length - a && b < next.length - a && old[old.length - 1 - b] === next[next.length - 1 - b]) b++;
+    const { selectionStart, selectionEnd } = textarea;
+    this.applyEdit({ from: a, to: old.length - b, insert: next.slice(a, next.length - b), selStart: selectionStart, selEnd: selectionEnd });
   },
 
   async openWikilink(target) {
