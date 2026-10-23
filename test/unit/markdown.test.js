@@ -37,6 +37,47 @@ test('task numbering skips fenced tasks, matching toggleTaskByIndex', () => {
   assert.match(h, /data-task="1"[^>]*checked[^>]*>\s*quoted/);
   assert.equal(toggleTaskByIndex(md, 1), '```\n- [ ] in fence\n```\n- [ ] first\n> - [ ] quoted');
 });
+test('data-task always names the line rendered as that checkbox, even when task text repeats', () => {
+  // [markdown, the 0-based source line of the only visible checkbox, a hidden look-alike line that must never flip]
+  for (const [md, visible, hidden] of [
+    ['<div>\n- [ ] dup\n</div>\n\n- [ ] dup', 4, 1], // inside an HTML block (escaped text)
+    ['    - [ ] codeblock\n\n- [ ] codeblock', 2, 0], // inside an indented code block
+    ['```\n- [ ] f\n```\n- [ ] f', 3, 1], // inside a fence
+    ['---\nx: 1\n---\n<p>\n- [ ] fm\n</p>\n\n- [ ] fm', 7, 4], // frontmatter shifts the lines
+  ]) {
+    const h = R(md);
+    assert.equal((h.match(/data-task=/g) || []).length, 1, md);
+    assert.match(h, /data-task="0"/, md);
+    const out = toggleTaskByIndex(md, 0).split('\n');
+    const src = md.split('\n');
+    assert.equal(out[visible], src[visible].replace('[ ]', '[x]'), md);
+    assert.equal(out[hidden], src[hidden], md);
+  }
+});
+test('task lines are found through loose lists, nesting, blockquotes and lazy lines', () => {
+  const md = '[r]: http://x\n\n- [ ] a\n\n\n- [x] b\n  - [ ] c\n\n  more\n> q\n> - [ ] d\nlazy\n\n2. [ ] ordered\n\n* [ ] e';
+  const h = R(md);
+  assert.deepEqual([...h.matchAll(/data-task="(\d+)"/g)].map((m) => m[1]), ['0', '1', '2', '3', '4']);
+  assert.match(h, /type="checkbox" disabled> ordered/);
+  const lines = md.split('\n');
+  for (const [n, line] of [[0, 2], [1, 5], [2, 6], [3, 10], [4, 15]]) {
+    const out = toggleTaskByIndex(md, n).split('\n');
+    assert.notEqual(out[line], lines[line], `task ${n}`);
+    assert.deepEqual(out.filter((l, i) => i !== line), lines.filter((l, i) => i !== line), `task ${n} touched another line`);
+  }
+});
+test('protocol-relative and UNC URLs never render', () => {
+  // Markdown reads \\ as an escaped \, so this source's URL is \evil\share\x.png: a root path on the local drive, not UNC
+  assert.match(R('![x](\\\\evil\\share\\x.png)'), /src="\\evil\\share\\x\.png"/);
+  for (const md of ['![x](//evil/x.png)', '![x](\\\\\\\\evil\\share\\x.png)', '![x](/\\evil/x)', '![x](\\\\/evil/x)',
+    '[x](//evil.com)', '[x](/\\evil/x)', '[x](\\\\\\\\evil\\share)', '![x]( //evil/x.png)', '[x](<//evil.com>)', '[r]\n\n[r]: //evil.com']) {
+    assert.doesNotMatch(R(md), /\s(src|href)="/, md);
+  }
+});
+test('ordinary relative URLs still render', () => {
+  for (const [md, url] of [['![x](img/a.png)', 'img/a.png'], ['![x](./a.png)', './a.png'], ['![x](../a.png)', '../a.png'], ['[x](#x)', '#x'], ['[x](/abs/a.md)', '/abs/a.md']])
+    assert.match(R(md), new RegExp(`(src|href)="${url.replace(/[.]/g, '\\.')}"`), md);
+});
 test('wikilinks: alias, heading, unresolved class', () => { const h = R('[[B|bee]] [[Gone#H]]', { isResolved: t => t === 'B' }); assert.match(h, /data-note="B"[^>]*>bee</); assert.match(h, /class="wikilink unresolved"/); assert.match(h, /data-heading="H"/); });
 test('wikilink exact markup', () => {
   assert.equal(R('[[B|bee]]', { isResolved: () => true }), '<p><a href="#" class="wikilink" data-note="B">bee</a></p>\n');
@@ -58,6 +99,6 @@ test('toggleTaskByIndex', () => {
   assert.equal(toggleTaskByIndex('  * [ ] a', 0), '  * [x] a'); assert.equal(toggleTaskByIndex('- [X] a', 0), '- [ ] a');
   assert.equal(toggleTaskByIndex('- [ ] a', 5), '- [ ] a'); });
 test('toggleTaskByIndex keeps CRLF, BOM and frontmatter; numbers like the renderer', () => {
-  assert.equal(toggleTaskByIndex('﻿---\nx: 1\n---\r\n+ [ ] a\r\n- [ ] b\r\n', 1), '﻿---\nx: 1\n---\r\n+ [ ] a\r\n- [x] b\r\n');
+  assert.equal(toggleTaskByIndex('\uFEFF---\nx: 1\n---\r\n+ [ ] a\r\n- [ ] b\r\n', 1), '\uFEFF---\nx: 1\n---\r\n+ [ ] a\r\n- [x] b\r\n');
   assert.equal(toggleTaskByIndex('- [ ] a', -1), '- [ ] a');
 });

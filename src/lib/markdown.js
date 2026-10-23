@@ -3,8 +3,6 @@
   const { Marked } = typeof module !== 'undefined' ? require('marked') : window.marked;
 
   const FRONT_FENCE = /^---\s*$/;
-  // A fence line, also inside a blockquote or list item (any indent): tasks between fences are code, not tasks
-  const FENCE = /^\s*(?:>\s*)*(`{3,}|~{3,})(.*)/;
   // A task line: optional indent and `>` prefixes, a - * + bullet, [ ], [x] or [X], then text (as marked's listIsTask)
   const TASK = /^(\s*(?:>\s*)*[-*+][ \t]+\[)([ xX])(\] +)(\S.*)/;
   const SCHEME = /^([a-z][a-z0-9+.-]*):/i;
@@ -12,33 +10,51 @@
 
   const str = (s) => (typeof s === 'string' ? s : '');
   const esc = (s) => str(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  const newlines = (s) => str(s).split('\n').length - 1;
 
   // Index of the line closing the frontmatter (-1: none), as note-parse reads it
-  const frontEnd = (lines) => (FRONT_FENCE.test(lines[0].replace(/^﻿/, '')) ? lines.findIndex((l, i) => i > 0 && FRONT_FENCE.test(l)) : -1);
+  const frontEnd = (lines) => (FRONT_FENCE.test(lines[0].replace(/^\uFEFF/, '')) ? lines.findIndex((l, i) => i > 0 && FRONT_FENCE.test(l)) : -1);
 
-  // Every task line in source order outside frontmatter and code fences: { line, m } (m = TASK match). Lines may end in \r.
-  function scanTasks(lines) {
-    const tasks = [];
-    const end = frontEnd(lines);
-    let fence = null; // opening marker while inside a fenced block
-    lines.forEach((line, i) => {
-      if (i <= end) return;
-      const f = FENCE.exec(line);
-      if (fence) {
-        if (f && f[1][0] === fence[0] && f[1].length >= fence.length && !f[2].trim()) fence = null;
-        return;
+  // Walks marked's block tokens keeping the source line each starts on (a token's raw holds its newlines; blockquote and list
+  // item children keep their parent's line structure). Each task item marked will render as a checkbox gets item.cortexTask = N
+  // and tasks[N] = its 0-based line in `lines`, but only if that line really is this task (same text): otherwise it gets no
+  // index, so a click can never flip some other line.
+  function numberTasks(tokens, line, lines, tasks) {
+    for (const t of tokens) {
+      if (t.type === 'list') {
+        let l = line;
+        for (const item of t.items) {
+          const want = item.task && TASK.exec(item.raw.split('\n')[0]);
+          const got = want && TASK.exec(lines[l] || '');
+          if (got && got[4].trimEnd() === want[4].trimEnd()) { item.cortexTask = tasks.length; tasks.push(l); }
+          numberTasks(item.tokens, l, lines, tasks);
+          l += newlines(item.raw);
+        }
+      } else if (t.type === 'blockquote') {
+        numberTasks(t.tokens, line, lines, tasks);
       }
-      if (f && !(f[1][0] === '`' && f[2].includes('`'))) { fence = f[1]; return; }
-      const m = TASK.exec(line);
-      if (m) tasks.push({ line: i, m });
-    });
-    return tasks;
+      line += newlines(t.raw);
+    }
   }
 
-  // The URL as the browser will read it (it drops C0 controls and spaces), or null when its scheme is not allowed
+  // The source split in lines, marked's tokens for the body (frontmatter cut off), and the task lines in render order
+  function lex(md) {
+    const lines = str(md).split('\n');
+    const end = frontEnd(lines);
+    const tokens = parser.lexer(lines.slice(end + 1).join('\n').replace(/^\uFEFF/, ''));
+    const tasks = [];
+    numberTasks(tokens, end + 1, lines, tasks);
+    return { lines, tokens, tasks };
+  }
+
+  // The URL as the browser will read it, or null when it is not allowed. The browser drops C0 controls and spaces and reads
+  // \ as /; a URL starting with // (or \\) is protocol-relative, which against the page's file:// base is a UNC path: rendering
+  // it would open an SMB connection.
   function safeUrl(href, image) {
     const url = str(href).trim();
-    const scheme = SCHEME.exec(url.replace(/[\x00-\x20]/g, ''));
+    const bare = url.replace(/[\x00-\x20]/g, '').replace(/\\/g, '/');
+    if (bare.startsWith('//')) return null;
+    const scheme = SCHEME.exec(bare);
     if (!scheme) return url; // relative, or #fragment
     if (/^(https?|mailto)$/i.test(scheme[1])) return url;
     return image && DATA_IMAGE.test(url) ? url : null;
@@ -80,15 +96,10 @@
         if (url === null) return esc(text);
         return `<img src="${esc(url)}" alt="${esc(text)}"${title ? ` title="${esc(title)}"` : ''}>`;
       },
-      // Pair each task item with its source line (by text, in order) so data-task matches toggleTaskByIndex; an item the
-      // scan does not know (an ordered-list task, say) gets a disabled checkbox with no index.
+      // numberTasks gave each task item whose source line it confirmed an index; any other task item (an ordered-list task,
+      // say) gets a disabled checkbox with no index
       listitem(item) {
-        state.pending = null;
-        const m = item.task && TASK.exec(item.raw.split('\n')[0]);
-        if (m) {
-          const k = state.tasks.findIndex((t, j) => j >= state.next && t.m[4].trimEnd() === m[4].trimEnd());
-          if (k >= 0) { state.pending = k; state.next = k + 1; }
-        }
+        state.pending = item.cortexTask ?? null;
         return false; // marked's own <li>; its checkbox token renders first, below
       },
       checkbox({ checked }) {
@@ -102,22 +113,21 @@
 
   // HTML safe for innerHTML: raw HTML escaped, only http(s)/mailto/relative links (and raster data: images), frontmatter hidden
   function renderMarkdown(md, opts = {}) {
-    const lines = str(md).split('\n');
-    const end = frontEnd(lines);
-    state = { tasks: scanTasks(lines), next: 0, pending: null, isResolved: opts.isResolved || (() => false) };
+    const { tokens } = lex(md);
+    state = { pending: null, isResolved: opts.isResolved || (() => false) };
     try {
-      return parser.parse(lines.slice(end + 1).join('\n').replace(/^﻿/, ''));
+      return parser.parser(tokens);
     } finally {
       state = null;
     }
   }
 
-  // Flips [ ] <-> [x] on the n-th task line (numbered as renderMarkdown numbers its checkboxes); unchanged if out of range
+  // Flips [ ] <-> [x] on the line renderMarkdown rendered as checkbox data-task="n"; unchanged if there is none
   function toggleTaskByIndex(content, n) {
-    const lines = str(content).split('\n');
-    const task = scanTasks(lines)[n];
-    if (!task) return content;
-    lines[task.line] = lines[task.line].replace(TASK, (all, a, c, b, rest) => a + (c === ' ' ? 'x' : ' ') + b + rest);
+    const { lines, tasks } = lex(content);
+    const line = tasks[n];
+    if (line === undefined) return content;
+    lines[line] = lines[line].replace(TASK, (all, a, c, b, rest) => a + (c === ' ' ? 'x' : ' ') + b + rest);
     return lines.join('\n');
   }
 
