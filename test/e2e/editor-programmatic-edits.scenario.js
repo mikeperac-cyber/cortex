@@ -2,8 +2,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-// Text the editor inserts itself (wikilink pick, slash command, Tab) assigns textarea.value without an `input` event.
-// It must still reach tab.content, or autosave / Ctrl+S / closing the tab write the text from before the insertion.
+// Text the editor inserts itself (wikilink pick, slash command, Tab) goes through App.applyEdit.
+// It must reach tab.content, or autosave / Ctrl+S / closing the tab write the text from before the insertion.
 module.exports = {
   seed: { 'Welcome.md': '# Welcome\n' },
 

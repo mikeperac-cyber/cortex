@@ -92,5 +92,35 @@ module.exports = {
     await synced('undo of the toggle');
     assert.equal(await js('App.flushSaves()'), true, 'save failed');
     assert.equal(fs.readFileSync(note, 'utf8'), '- [ ] t\nend');
+
+    // 8. Preview-only layout hides the textarea (no focus, so no execCommand): the toggle still reaches the textarea, the tab and the disk
+    await js('App.setLayout("preview")');
+    await js('App.updatePreview(document.getElementById("editorTextarea").value)');
+    await js('document.querySelector("#previewContent input[data-task=\\"0\\"]").click(); 0');
+    assert.equal(await js('document.activeElement === document.getElementById("editorTextarea")'), false, 'the hidden textarea took focus: the fallback path was not exercised');
+    assert.equal(await value(), '- [x] t\nend', 'preview-only toggle missed the textarea');
+    assert.equal(await js('App.openTabs[0].content'), '- [x] t\nend', 'preview-only toggle missed the tab');
+    assert.equal(await js('App.openTabs[0].modified'), true, 'preview-only toggle left the tab clean');
+    assert.equal(await js('App.flushSaves()'), true, 'save failed');
+    assert.equal(fs.readFileSync(note, 'utf8'), '- [x] t\nend');
+    await js('App.setLayout("split")');
+    await js('document.getElementById("editorTextarea").focus()');
+
+    // 9. A slash inside a word or URL opens no palette, so Enter continues the list; at line start the palette still owns Enter
+    for (const line of ['- milk/bread', '- coffee w/o', '- see https://']) {
+      await type(line);
+      assert.equal(await js('App._slashOpen'), false, 'slash palette opened for ' + JSON.stringify(line));
+      await key({ key: 'Enter', code: 'Enter' });
+      assert.equal(await value(), line + '\n- ', 'Enter after ' + JSON.stringify(line));
+    }
+    await type('/');
+    assert.equal(await js('App._slashOpen'), true, 'slash palette did not open at line start');
+    await key({ key: 'Enter', code: 'Enter' });
+    assert.equal(await value(), '# ');
+    // a query with no match closes the palette: Enter is a plain Enter again (the browser's own, not prevented)
+    await type('- a /zzz');
+    assert.equal(await js('App._slashOpen'), false, 'empty slash palette stayed open');
+    await type('[[zzzq');
+    assert.equal(await js('App._wikilinkOpen'), false, 'empty wikilink autocomplete stayed open');
   },
 };

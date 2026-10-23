@@ -644,7 +644,7 @@ const App = {
     const textBeforeCursor = content.substring(0, cursorPos);
 
     // Check for slash command
-    const slashMatch = textBeforeCursor.match(/\/(\w*)$/);
+    const slashMatch = textBeforeCursor.match(/(?:^|\s)\/(\w*)$/); // only at line start or after a space: not in w/o, a/b, https://
     if (slashMatch) {
       this._slashQuery = slashMatch[1];
       this._slashOpen = true;
@@ -711,6 +711,7 @@ const App = {
     ];
 
     const filtered = slashCommands.filter(c => c.label.toLowerCase().includes(this._slashQuery.toLowerCase()));
+    if (!filtered.length) { this.hideSlashPalette(); return; } // an empty palette must not own Enter / Tab
 
     const container = this.$('slashItems');
     container.innerHTML = '';
@@ -747,6 +748,7 @@ const App = {
 
     const query = CortexLib.normalizeStem(this._wikilinkQuery);
     const matches = this._notes.filter(n => CortexLib.normalizeStem(n.stem).includes(query));
+    if (!matches.length) { this.hideWikilinkAutocomplete(); return; } // as in showSlashPalette
 
     const container = this.$('wikilinkItems');
     container.innerHTML = '';
@@ -802,7 +804,8 @@ const App = {
     textarea.focus({ preventScroll: true }); // execCommand edits only the focused element
     if (textarea.value.slice(from, to) !== insert) {
       textarea.setSelectionRange(from, to);
-      if (!document.execCommand(insert === '' ? 'delete' : 'insertText', false, insert)) {
+      // not focused (hidden in preview-only layout): execCommand would edit whatever else has focus
+      if (document.activeElement !== textarea || !document.execCommand(insert === '' ? 'delete' : 'insertText', false, insert)) {
         textarea.value = textarea.value.slice(0, from) + insert + textarea.value.slice(to); // never lose the edit: no undo, but it lands
         this.onEditorInput();
       }
