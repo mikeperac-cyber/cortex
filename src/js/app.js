@@ -156,6 +156,7 @@ const App = {
     const textarea = this.$('editorTextarea');
     textarea.addEventListener('input', () => this.onEditorInput());
     textarea.addEventListener('keydown', (e) => this.onEditorKeydown(e));
+    this.$('previewContent').addEventListener('click', (e) => this.onPreviewClick(e)); // one delegated listener: the content is re-rendered
     textarea.addEventListener('click', () => this.updateCursorPosition());
     textarea.addEventListener('keyup', () => this.updateCursorPosition());
 
@@ -993,6 +994,38 @@ const App = {
   updatePreview(markdown) {
     // safe for innerHTML: the renderer escapes raw HTML and drops unsafe URLs. Resolution is by stem only ([[sub/Note]] shows unresolved).
     this.$('previewContent').innerHTML = CortexLib.renderMarkdown(markdown || '', { isResolved: (t) => this._stemSet.has(CortexLib.normalizeStem(t)) });
+  },
+
+  onPreviewClick(e) {
+    const box = e.target.closest('input[data-task]');
+    if (box) { e.preventDefault(); this.toggleTask(Number(box.dataset.task)); return; }
+    const a = e.target.closest('a');
+    if (!a) return;
+    e.preventDefault();
+    if (a.classList.contains('wikilink')) this.openWikilink(a.dataset.note);
+    else if (/^(https?:|mailto:)/i.test(a.getAttribute('href') || '')) window.cortex.openExternal(a.getAttribute('href'));
+  },
+
+  toggleTask(n) {
+    const textarea = this.$('editorTextarea');
+    const next = CortexLib.toggleTaskByIndex(textarea.value, n);
+    if (next === textarea.value) return;
+    textarea.value = next;
+    this.onEditorInput(); // as in insertSlashCommand: updates the tab, schedules the save and re-renders
+  },
+
+  async openWikilink(target) {
+    const note = await window.cortex.index.resolve(target);
+    if (note) { this.hideWelcome(); await this.openFile(note.path); return; }
+    if (!confirm("Create '" + target + "'?")) return;
+    const parsed = CortexLib.normalizeName(target, '.md');
+    if (!parsed.ok) { alert(parsed.error); return; }
+    const filePath = this.vaultPath + '/' + parsed.name;
+    const result = await window.cortex.writeFile(filePath, '# ' + parsed.name.replace(/\.md$/i, '').split('/').pop() + '\n', { overwrite: false });
+    if (!result.success && !result.exists) { alert('Could not create the note: ' + result.error); return; }
+    await this.renderFileTree();
+    this.hideWelcome();
+    await this.openFile(filePath);
   },
 
   togglePreview() {

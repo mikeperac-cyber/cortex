@@ -186,6 +186,10 @@ function createWindow() {
   });
 
   mainWindow.loadFile(path.join(__dirname, '../src/index.html'));
+  // The app window never navigates or spawns windows: links and window.open go to the system browser (safe schemes only)
+  const external = (url) => { if (isSafeExternalUrl(url)) shell.openExternal(url).catch(() => {}); };
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => { external(url); return { action: 'deny' }; });
+  mainWindow.webContents.on('will-navigate', (e, url) => { e.preventDefault(); external(url); });
   const win = mainWindow;
   let closing = false;
   let saved = false;
