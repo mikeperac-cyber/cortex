@@ -39,5 +39,8 @@
   },
   "allowScripts": {
     "electron@28.3.3": true
+  },
+  "dependencies": {
+    "marked": "18.1.1"
   }
 }

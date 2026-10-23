@@ -294,6 +294,10 @@ body {
 .preview-content th, .preview-content td { padding: 8px 12px; border: 1px solid var(--border-1); text-align: left; }
 .preview-content th { background: var(--bg-2); font-weight: 600; }
 .preview-content input[type="checkbox"] { margin-right: 6px; accent-color: var(--accent-0); }
+.preview-content li:has(> input[type="checkbox"]:first-child),
+.preview-content li:has(> p:first-child > input[type="checkbox"]:first-child) { list-style: none; margin-left: -20px; }
+.preview-content img { max-width: 100%; border-radius: 8px; margin: 1em 0; }
+.preview-content a.wikilink.unresolved { opacity: 0.6; border-bottom-style: dashed; }
 
 /* ---- Graph View ---- */
 .graph-view { display: none; flex: 1; position: relative; background: var(--bg-0); contain: layout; }

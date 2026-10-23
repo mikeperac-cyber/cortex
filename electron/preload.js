@@ -19,6 +19,11 @@ function subscribe(channel, handler) {
   return () => { ipcRenderer.removeListener(channel, handler); }; // removeListener returns the emitter: never hand it to the page
 }
 
+// One throwing page callback must not stop ipcRenderer from calling the other listeners on its channel
+const guard = (channel, handler) => (...args) => {
+  try { handler(...args); } catch (err) { console.error(channel + ' callback failed:', err); }
+};
+
 contextBridge.exposeInMainWorld('cortex', {
   index: {
     notes: indexQuery('index:notes', 'notes', () => []),
@@ -28,8 +33,8 @@ contextBridge.exposeInMainWorld('cortex', {
     tags: indexQuery('index:tags', 'tags', () => []),
     graph: indexQuery('index:graph', 'graph', () => ({ nodes: [], edges: [] })),
     search: indexQuery('index:search', 'results', () => []),
-    onUpdated: (callback) => subscribe('vault:index-updated', () => callback()),
-    onFileChanged: (callback) => subscribe('vault:file-changed', (e, absPath) => callback(absPath)),
+    onUpdated: (callback) => subscribe('vault:index-updated', guard('vault:index-updated', () => callback())),
+    onFileChanged: (callback) => subscribe('vault:file-changed', guard('vault:file-changed', (e, absPath) => callback(absPath))),
   },
   getVaultPath: () => ipcRenderer.invoke('get-vault-path'),
   readFile: (filePath) => ipcRenderer.invoke('read-file', filePath),
@@ -44,18 +49,18 @@ contextBridge.exposeInMainWorld('cortex', {
   minimize: () => ipcRenderer.send('window:minimize'),
   maximize: () => ipcRenderer.send('window:maximize'),
   close: () => ipcRenderer.send('window:close'),
-  onVaultChanged: (callback) => ipcRenderer.on('vault:changed', (e, path) => callback(path)),
+  onVaultChanged: (callback) => subscribe('vault:changed', guard('vault:changed', (e, path) => callback(path))),
   // main asks for a save-everything before closing or switching vault. callback(asking) resolves false to veto
   // ("the user wants to keep unsaved text"); true, undefined or a throw let main proceed, and the ack is always sent.
   // The callback calls asking() before it blocks on a question to the user, so main's timeout does not cut the user short.
-  onFlush: (callback) => ipcRenderer.on('app:flush', async () => {
+  onFlush: (callback) => subscribe('app:flush', async () => {
     let proceed = true;
     try {
-      proceed = (await callback(() => ipcRenderer.send('app:flush-asking'))) !== false;
+      proceed = (await callback(() => { ipcRenderer.send('app:flush-asking'); })) !== false;
     } catch (err) {
       console.error('flush failed:', err);
     }
     ipcRenderer.send('app:flushed', proceed);
   }),
-  onMenuAction: (action, callback) => ipcRenderer.on('menu:' + action, callback),
+  onMenuAction: (action, callback) => subscribe('menu:' + action, guard('menu:' + action, () => callback())),
 });

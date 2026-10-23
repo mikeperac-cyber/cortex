@@ -991,50 +991,12 @@ const App = {
   // ---- Preview ----
 
   updatePreview(markdown) {
-    this.$('previewContent').innerHTML = this.parseMarkdown(markdown || '');
+    // safe for innerHTML: the renderer escapes raw HTML and drops unsafe URLs. Resolution is by stem only ([[sub/Note]] shows unresolved).
+    this.$('previewContent').innerHTML = CortexLib.renderMarkdown(markdown || '', { isResolved: (t) => this._stemSet.has(CortexLib.normalizeStem(t)) });
   },
 
   togglePreview() {
     this.$('previewPane').classList.toggle('visible');
-  },
-
-  parseMarkdown(md) {
-    if (!md) return '';
-    let html = md.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-
-    // Wikilinks
-    html = html.replace(/\[\[([^\]]+)\]\]/g, '<a href="#" class="wikilink" data-note="$1">$1</a>');
-
-    html = html.replace(/^### (.*$)/gim, '<h3>$1</h3>');
-    html = html.replace(/^## (.*$)/gim, '<h2>$1</h2>');
-    html = html.replace(/^# (.*$)/gim, '<h1>$1</h1>');
-    html = html.replace(/\*\*\*(.*?)\*\*\*/g, '<strong><em>$1</em></strong>');
-    html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-    html = html.replace(/\*(.*?)\*/g, '<em>$1</em>');
-    html = html.replace(/___(.*?)___/g, '<strong><em>$1</em></strong>');
-    html = html.replace(/__(.*?)__/g, '<strong>$1</strong>');
-    html = html.replace(/_(.*?)_/g, '<em>$1</em>');
-    html = html.replace(/~~(.*?)~~/g, '<del>$1</del>');
-    html = html.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code class="language-$1">$2</code></pre>');
-    html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
-    html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
-    html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1" style="max-width:100%;border-radius:8px;margin:1em 0;">');
-    html = html.replace(/^&gt; (.*$)/gim, '<blockquote>$1</blockquote>');
-    html = html.replace(/^---$/gim, '<hr>');
-    html = html.replace(/^\d+\. (.*$)/gim, '<li>$1</li>');
-    html = html.replace(/^[\-\*] (.*$)/gim, '<li>$1</li>');
-    html = html.replace(/^\[ \] (.*$)/gim, '<div class="task-list-item"><input type="checkbox" disabled> $1</div>');
-    html = html.replace(/^\[x\] (.*$)/gim, '<div class="task-list-item"><input type="checkbox" disabled checked> $1</div>');
-
-    html = html.replace(/\|(.+)\|/g, (match) => {
-      const cells = match.split('|').filter(c => c.trim());
-      if (cells.every(c => c.trim().match(/^[\-:]+$/))) return '';
-      return '<tr>' + cells.map(c => `<td>${c.trim()}</td>`).join('') + '</tr>';
-    });
-
-    html = html.replace(/^(?!<[a-z/])(.*\S.*)$/gim, '<p>$1</p>');
-    html = html.replace(/\n{3,}/g, '\n\n');
-    return html;
   },
 
   // ---- Status Bar ----
