@@ -1,0 +1,43 @@
+# Pushing a version tag (git tag v1.1.0 && git push origin v1.1.0) tests the tagged commit on Windows, builds the portable exe
+# and publishes a GitHub release with the notes from docs/releases/<tag>.md plus the exe's SHA-256.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Tag matches package.json
+        shell: pwsh
+        run: |
+          $v = (Get-Content package.json | ConvertFrom-Json).version
+          if ("v$v" -ne "${{ github.ref_name }}") { throw "tag ${{ github.ref_name }} != package.json v$v" }
+      - run: npm test
+      - run: npm run test:e2e
+      - run: npm run build -- --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false' # no code-signing certificate yet
+      - name: Release notes with checksum
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem dist -Filter '*-portable.exe' | Select-Object -First 1
+          $sha = (Get-FileHash $exe.FullName -Algorithm SHA256).Hash.ToLower()
+          $notes = Get-Content 'docs/releases/${{ github.ref_name }}.md' -Raw
+          $notes.Replace('{{SHA256}}', $sha).Replace('{{COMMIT}}', '${{ github.sha }}'.Substring(0, 7)) | Set-Content dist/notes.md -Encoding utf8
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: Cortex ${{ github.ref_name }}
+          body_path: dist/notes.md
+          files: dist/*-portable.exe
