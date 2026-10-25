@@ -18,8 +18,8 @@ module.exports = {
     await js(`App.openPlugin('dailysync')`);
     await panel(`(p.panelEl.querySelector('#dsJournal').value = ${JSON.stringify(draft)}, 0)`);
     await panel(`(p.panelEl.querySelector('#dsCreateNote').click(), 0)`);
-    for (let i = 0; i < 100 && (await panel(`p.panelEl.classList.contains('visible')`)); i++) await sleep(50);
-    assert.equal(await panel(`p.panelEl.classList.contains('visible')`), false, 'the panel did not close');
+    for (let i = 0; i < 100 && (await panel(`!!p.panelEl`)); i++) await sleep(50);
+    assert.equal(await panel(`!!p.panelEl || !!document.getElementById('plugin-dailysync')`), false, 'the panel did not close');
 
     assert.equal(fs.readFileSync(note, 'utf8'), template, 'the existing note was rewritten');
     assert.equal(await js(`localStorage.getItem('cortex_daily_' + CortexLib.localDateStr())`), draft, 'the journal draft was not kept');

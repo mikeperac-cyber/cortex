@@ -12,7 +12,7 @@ class DataForgePlugin {
 
   open() { this.renderPanel(); }
 
-  close() { if (this.panelEl) this.panelEl.classList.remove('visible'); }
+  close() { this.panelEl?.remove(); this.panelEl = null; } // removed, not hidden: a reopened panel never meets stale ids
 
   renderPanel() {
     this.close();

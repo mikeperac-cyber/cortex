@@ -118,6 +118,7 @@ const App = {
     else if (this.sidebarPanel === 'tags') this.renderTagsPanel(tree);
     else if (this.sidebarPanel === 'search') this.runSearch();
     if (this.$('graphView').classList.contains('visible')) this.initGraph();
+    for (const p of this.plugins) { try { p.onIndexUpdated?.(); } catch (err) { console.warn(p.name + ' index update failed:', err); } }
   },
 
   async loadVault() {
@@ -173,6 +174,8 @@ const App = {
     this.$('btnCommandPalette').addEventListener('click', () => this.openCommandPalette());
     this.$('btnFocusMode').addEventListener('click', () => this.toggleFocusMode());
     this.$('btnLayoutCycle').addEventListener('click', () => this.cycleLayout());
+    this.$('btnSynapse').addEventListener('click', () => this.openPlugin('synapse'));
+    this.$('btnVaultDoctor').addEventListener('click', () => this.openPlugin('vaultdoctor'));
     this.$('btnGraphRefresh').addEventListener('click', () => this.initGraph());
     this.$('editorTabs').addEventListener('click', (e) => this.onTabClick(e));
 
@@ -1579,6 +1582,10 @@ const App = {
       { name: 'Open DailySync', icon: '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><rect x="2" y="3" width="10" height="9" stroke="currentColor" stroke-width="1"/><path d="M2 6H12" stroke="currentColor" stroke-width="1"/></svg>', action: () => this.openPlugin('dailysync') },
       { name: 'Open Recall', icon: '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><rect x="3" y="2" width="8" height="10" rx="1" stroke="currentColor" stroke-width="1"/><path d="M5 5H9M5 7.5H9" stroke="currentColor" stroke-width="1"/></svg>', action: () => this.openPlugin('recall') },
       { name: 'Open DataForge', icon: '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><rect x="2" y="2" width="10" height="10" rx="1" stroke="currentColor" stroke-width="1"/><path d="M2 5H12M5 5V12" stroke="currentColor" stroke-width="1"/></svg>', action: () => this.openPlugin('dataforge') },
+      { name: 'Open Synapse AI', icon: '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 1.5L8.3 5.7L12.5 7L8.3 8.3L7 12.5L5.7 8.3L1.5 7L5.7 5.7L7 1.5Z" stroke="currentColor" stroke-width="1"/></svg>', action: () => this.openPlugin('synapse') },
+      { name: 'AI: Summarize Note', icon: '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 4H12M2 7H12M2 10H8" stroke="currentColor" stroke-width="1"/></svg>', action: () => this.runAi('summarize') },
+      { name: 'AI: Suggest Links', icon: '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M6 8L8 6M5 9.5L3.5 11A2 2 0 0 1 1 8.5L2.5 7M9 4.5L10.5 3A2 2 0 0 1 13 5.5L11.5 7" stroke="currentColor" stroke-width="1"/></svg>', action: () => this.runAi('links') },
+      { name: 'Open Vault Doctor', icon: '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 7H5L6 5L8 9L9 7H12" stroke="currentColor" stroke-width="1"/></svg>', action: () => this.openPlugin('vaultdoctor') },
       { name: 'Open FocusPulse', icon: '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="5" stroke="currentColor" stroke-width="1"/><path d="M7 4V7L9 8" stroke="currentColor" stroke-width="1"/></svg>', action: () => this.openPlugin('focuspulse') },
     ];
   },
@@ -1619,7 +1626,7 @@ const App = {
   // ---- Plugin System ----
 
   async loadPlugins() {
-    const pluginGlobals = ['TaskFlowPlugin', 'DailySyncPlugin', 'RecallPlugin', 'DataForgePlugin', 'FocusPulsePlugin'];
+    const pluginGlobals = ['TaskFlowPlugin', 'DailySyncPlugin', 'RecallPlugin', 'DataForgePlugin', 'FocusPulsePlugin', 'SynapsePlugin', 'VaultDoctorPlugin'];
     for (const globalName of pluginGlobals) {
       try {
         const PluginClass = window[globalName];
@@ -1657,7 +1664,14 @@ const App = {
 
   openPlugin(name) {
     const plugin = this.plugins.find(p => p.name === name);
-    if (plugin && plugin.open) plugin.open();
+    if (plugin && plugin.open) return plugin.open();
+  },
+
+  async runAi(kind) {
+    const synapse = this.plugins.find(p => p.name === 'synapse');
+    if (!synapse) return;
+    await synapse.open();
+    synapse.run(kind);
   },
 
   hidePluginPanels() {

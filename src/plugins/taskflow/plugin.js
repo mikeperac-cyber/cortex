@@ -26,7 +26,7 @@ class TaskFlowPlugin {
 
   open() { this.renderPanel(); }
 
-  close() { if (this.panelEl) this.panelEl.classList.remove('visible'); }
+  close() { this.panelEl?.remove(); this.panelEl = null; } // removed, not hidden: a reopened panel never meets stale ids
 
   renderPanel() {
     this.close();
@@ -55,6 +55,11 @@ class TaskFlowPlugin {
 
     panel.querySelector('#tfAddTask').addEventListener('click', () => this.addTask());
     panel.querySelector('#tfClose').addEventListener('click', () => this.close());
+    panel.querySelectorAll('.tf-add-btn').forEach(b => b.addEventListener('click', () => this.addTask(b.dataset.col)));
+    panel.querySelectorAll('.tf-task-action').forEach(b => b.addEventListener('click', () => {
+      const task = this.tasks.find(t => String(t.id) === b.dataset.id);
+      if (task) (b.dataset.action === 'edit' ? this.editTask(task) : this.deleteTask(task));
+    }));
 
     // Drag & drop
     panel.querySelectorAll('.tf-task').forEach(el => {
@@ -118,12 +123,39 @@ class TaskFlowPlugin {
     `;
   }
 
-  async addTask() {
+  // Ids stay unique even when many tasks are added in the same millisecond
+  nextId() { return Math.max(Date.now(), ...this.tasks.map(t => (Number(t.id) || 0) + 1)); }
+
+  async addTask(column = 'todo') {
     const title = await Dialogs.ask({ title: 'New task', placeholder: 'Task title' });
     if (!title) return;
-    this.tasks.push({ id: Date.now(), title, column: 'todo', priority: 'medium', due: null, tags: [] });
+    this.tasks.push({ id: this.nextId(), title, column: this.columns.includes(column) ? column : 'todo', priority: 'medium', due: null, tags: [] });
     this.saveTasks();
     this.renderPanel();
+  }
+
+  async editTask(task) {
+    const title = await Dialogs.ask({ title: 'Edit task', value: task.title });
+    if (!title) return;
+    task.title = title;
+    this.saveTasks();
+    if (this.panelEl) this.renderPanel();
+  }
+
+  deleteTask(task) {
+    if (!confirm('Delete "' + task.title + '"?')) return;
+    this.tasks = this.tasks.filter(t => t !== task);
+    this.saveTasks();
+    if (this.panelEl) this.renderPanel();
+  }
+
+  // Synapse hands over extracted action items; returns how many were added to To Do
+  addTasks(titles) {
+    const base = this.nextId();
+    titles.forEach((title, i) => this.tasks.push({ id: base + i, title, column: 'todo', priority: 'medium', due: null, tags: [] }));
+    this.saveTasks();
+    if (this.panelEl) this.renderPanel();
+    return titles.length;
   }
 }
 

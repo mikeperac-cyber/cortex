@@ -23,7 +23,7 @@ class FocusPulsePlugin {
 
   open() { this.renderPanel(); }
 
-  close() { if (this.panelEl) this.panelEl.classList.remove('visible'); this.stopTimer(); }
+  close() { this.panelEl?.remove(); this.panelEl = null; this.stopTimer(); }
 
   renderPanel() {
     this.close();

@@ -33,6 +33,23 @@ module.exports = {
       input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
     })()`);
     await js('window.__op');
-    await check(await js(`${tf}.tasks[${tf}.tasks.length - 1].id`), 'added task');
+    const added = await js(`${tf}.tasks[${tf}.tasks.length - 1].id`);
+    await check(added, 'added task');
+
+    // 3. The card's Edit and Delete buttons work on that task only
+    const answer = async (text) => js(`(() => {
+      const input = document.getElementById('askInput');
+      input.value = ${JSON.stringify(text)};
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    })()`);
+    await js(`${card(added)}.querySelector('[data-action="edit"]').click(); 0`);
+    await answer('Renamed');
+    for (let i = 0; i < 100 && (await js(`${tf}.tasks.find(t => t.id === ${added}).title`)) !== 'Renamed'; i++) await new Promise((r) => setTimeout(r, 50));
+    assert.equal(await js(`${tf}.tasks.find(t => t.id === ${added}).title`), 'Renamed');
+    const before = await js(`${tf}.tasks.length`);
+    await js(`window.confirm = () => true; ${card(added)}.querySelector('[data-action="delete"]').click(); 0`);
+    assert.equal(await js(`${tf}.tasks.length`), before - 1);
+    assert.equal(await js(`${tf}.tasks.some(t => t.id === ${added})`), false);
+    assert.equal(await js(`${tf}.tasks.some(t => t.id === 424242)`), true, 'another task was deleted');
   },
 };
