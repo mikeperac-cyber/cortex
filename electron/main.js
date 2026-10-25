@@ -1,10 +1,11 @@
-const { app, BrowserWindow, ipcMain, dialog, Menu, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, Menu, shell, safeStorage } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { createVaultFs } = require('./vault-fs');
 const { VaultIndex } = require('./vault-index');
 const { normalizeStem, rewriteLinks, linkMention } = require('../src/lib/note-parse.js');
 const { isSafeExternalUrl } = require('./security');
+const { createAi } = require('./ai');
 
 let mainWindow;
 // CORTEX_VAULT (another vault) and CORTEX_E2E (hidden window) are test hooks for the e2e harness: only an unpackaged run
@@ -19,6 +20,14 @@ const vaultFs = createVaultFs({
   getRoot: () => vaultPath,
   trash: (absPath) => shell.trashItem(absPath),
 });
+
+// CORTEX_AI_BASE_URL is an e2e hook (a local stand-in for the API); like the others, only an unpackaged run honours it
+let ai = null;
+const getAi = () => ai || (ai = createAi({
+  configPath: path.join(app.getPath('userData'), 'ai.json'),
+  safeStorage,
+  ...(testHooks && process.env.CORTEX_AI_BASE_URL ? { baseURL: process.env.CORTEX_AI_BASE_URL } : {}),
+}));
 
 let flushInFlight = null;
 
@@ -157,6 +166,8 @@ Your second brain awaits. This is a **local-first** markdown workspace.
 3. **Recall** — Spaced repetition flashcards
 4. **DataForge** — Dataview queries & templates
 5. **FocusPulse** — Pomodoro timer & focus stats
+6. **Synapse** — AI with your own key (Anthropic, OpenRouter, NVIDIA)
+7. **Vault Doctor** — broken links, orphans and stubs, with one-click fixes
 
 ---
 *Cortex: Your thoughts, connected.*
@@ -337,6 +348,10 @@ handleIndex('index:search', 'results', [], (query, limit) => index.search(
   needString(query, 'query'),
   Number.isFinite(limit) ? Math.min(200, Math.max(1, Math.floor(limit))) : undefined, // undefined: the index default
 ));
+
+ipcMain.handle('ai:get-config', () => getAi().getConfig());
+ipcMain.handle('ai:set-config', (event, opts) => getAi().setConfig(opts));
+ipcMain.handle('ai:complete', (event, req) => getAi().complete(req));
 
 ipcMain.handle('open-external', async (event, url) => {
   if (!isSafeExternalUrl(url)) return { success: false, error: 'URL scheme is not allowed' };

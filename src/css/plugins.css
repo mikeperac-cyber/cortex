@@ -82,3 +82,38 @@ body.layout-preview-only .editor-pane { display: none !important; }
 
 /* ---- Empty States ---- */
 .empty-state { animation: fadeIn 200ms ease-out; }
+
+/* ---- Synapse (AI) & Vault Doctor ---- */
+.syn-wrap { max-width: 860px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
+.syn-card { background: var(--bg-1); border: 1px solid var(--border-0); border-radius: 8px; padding: 16px; }
+.syn-card[hidden] { display: none; }
+.syn-h { font-family: var(--font-display); font-size: 14px; color: var(--text-1); margin-bottom: 10px; }
+.syn-dim { font-size: 12px; color: var(--text-2); line-height: 1.5; }
+.syn-row { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+.syn-label { width: 80px; font-size: 12px; color: var(--text-2); flex-shrink: 0; }
+.syn-input {
+  flex: 1; min-width: 0; padding: 7px 10px; background: var(--bg-3); border: 1px solid var(--border-1);
+  border-radius: 6px; color: var(--text-0); font-family: var(--font-mono); font-size: 12px;
+}
+.syn-input:focus { outline: none; border-color: var(--accent-0); }
+.syn-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.syn-btn {
+  padding: 6px 12px; background: var(--bg-3); border: 1px solid var(--border-1); border-radius: 6px;
+  color: var(--text-1); font-size: 12px; cursor: pointer; transition: border-color var(--transition-fast), color var(--transition-fast);
+}
+.syn-btn:hover:not(:disabled) { border-color: var(--accent-0); color: var(--accent-0); }
+.syn-btn:disabled { opacity: 0.5; cursor: default; }
+.syn-btn-primary { background: var(--accent-dim); border-color: var(--accent-0); color: var(--accent-0); }
+.syn-status { font-size: 12px; color: var(--text-2); margin-bottom: 10px; }
+.syn-status.syn-error { color: var(--danger); }
+.syn-result { margin-bottom: 12px; padding: 0; max-width: none; }
+.syn-result:empty { display: none; }
+.vd-head { display: flex; align-items: baseline; gap: 16px; }
+.vd-score { font-family: var(--font-display); font-size: 44px; font-weight: 300; }
+.vd-good { color: var(--success); } .vd-ok { color: var(--warning); } .vd-bad { color: var(--danger); }
+.vd-count { font-size: 11px; padding: 1px 8px; border-radius: 10px; background: var(--bg-3); color: var(--text-2); }
+.vd-count.vd-bad { color: var(--danger); }
+.vd-list { display: flex; flex-direction: column; margin-top: 8px; }
+.vd-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; border-top: 1px solid var(--border-0); }
+.vd-text { min-width: 0; }
+.vd-name { font-size: 13px; color: var(--text-0); overflow-wrap: anywhere; }

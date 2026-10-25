@@ -11,7 +11,7 @@ Plain Markdown files. One live index. No account, no cloud, no lock-in.
 [![License: MIT](https://img.shields.io/badge/license-MIT-e8a84c.svg)](LICENSE)
 [![Platform: Windows](https://img.shields.io/badge/platform-Windows-0a84ff.svg)](#)
 [![Electron](https://img.shields.io/badge/Electron-28.3.3-47848F.svg)](#)
-[![Tests](https://img.shields.io/badge/tests-143%20unit%20%C2%B7%2024%20e2e-3fb950.svg)](#testing)
+[![Tests](https://img.shields.io/badge/tests-196%20unit%20%C2%B7%2026%20e2e-3fb950.svg)](#testing)
 
 </div>
 
@@ -51,11 +51,22 @@ at the old name.
 - 🧩 **Unlinked mentions** — Cortex notices when you've typed a note's name without linking it, and turns it into a link in one click
 - 🪟 **Workspace restore** — your open tabs, the active one, your side panel and layout come back exactly as you left them, per vault
 
+**AI that uses your own key** — *Synapse* (✨ in the activity bar)
+- 🔑 **Bring your own key** for **Anthropic**, **OpenRouter** or **NVIDIA NIM** — pick the provider and model, paste a key, done
+- 📝 **Summarize** a note, **suggest links** to notes that actually exist, **suggest tags** from your own tag set
+- 🃏 **Make flashcards** straight into Recall, **extract tasks** straight into TaskFlow
+- 💬 **Ask your vault** — the best-matching notes go to the model, the answer cites them as `[[links]]`
+- 🔒 The key is encrypted with your OS keychain and stays in the main process: the page never sees it and still cannot make network requests at all
+
+**Optimize your vault** — *Vault Doctor* (♥ in the activity bar)
+- 🩺 A health score plus every **broken link**, **orphan note**, **stub** and **ambiguous duplicate name**, live from the index
+- 🛠️ One-click fixes: create the missing note, open the culprit, or have Synapse suggest links for an orphan
+
 **Safety, by construction**
 - A create or rename can never silently overwrite an existing note
 - A save that fails stays visibly dirty — nothing is lost quietly
 - The whole filesystem surface is confined to the vault root and goes through one audited module
-- 143 unit tests and 24 end-to-end scenarios run against a throwaway vault, never your real one
+- 196 unit tests and 26 end-to-end scenarios run against a throwaway vault, never your real one — the AI ones against a local stand-in, never a real provider
 
 <p align="center">
   <img src="docs/screenshots/graph-view.png" width="860" alt="The graph view, showing resolved links between four notes">
@@ -87,6 +98,20 @@ run). Open the command palette with `Ctrl+P`, or just start typing.
 | `Ctrl+G` | Graph view |
 | `Ctrl+Shift+F` | Search |
 | `F11` | Focus mode |
+
+### Using AI (bring your own key)
+
+Open **Synapse** from the activity bar (or `Ctrl+P` → "Open Synapse AI"), choose a provider, paste a key:
+
+| Provider | Get a key | Default model | Model ids look like |
+|---|---|---|---|
+| Anthropic | console.anthropic.com | `claude-opus-5-5` | `claude-sonnet-5-5`, `claude-haiku-5-5` |
+| OpenRouter | openrouter.ai/keys | `openrouter/auto` | `anthropic/claude-sonnet-4.5`, `meta-llama/llama-3.3-70b-instruct:free` |
+| NVIDIA NIM | build.nvidia.com | `meta/llama-3.3-70b-instruct` | `deepseek-ai/deepseek-r1`, `nvidia/llama-3.1-nemotron-70b-instruct` |
+
+Each provider keeps its own key and model, so you can switch back and forth. Only the note you run Synapse on
+(or, for *Ask your vault*, the few notes that best match your question) is sent, and only to the provider you picked.
+Without a system keychain the key is kept in memory until you quit, never written to disk.
 
 ### Building a portable `.exe`
 
@@ -124,10 +149,10 @@ them ever touch your real notes.
 
 Cortex is an early-stage personal project, Windows-only for now (it leans on
 `fs.watch`'s recursive mode, which Windows and macOS support but Linux
-doesn't yet). The five plugins bundled in the sidebar — TaskFlow, DailySync,
-Recall, DataForge, FocusPulse — are a work in progress and not yet at the
-quality of the core notes engine above; a dedicated pass to make them real is
-next on the roadmap. No code signing or auto-update yet either. Expect rough
+doesn't yet). Synapse and Vault Doctor are new and fully tested. Of the five older
+plugins, TaskFlow (edit/delete/add now work) and Recall (real SM-2 scheduling)
+have had a first pass; DailySync, DataForge and FocusPulse are still a work in
+progress, and plugin data still lives in browser storage rather than the vault. No code signing or auto-update yet either. Expect rough
 edges, and issues are welcome.
 
 ## License

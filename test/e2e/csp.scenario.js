@@ -61,7 +61,7 @@ module.exports = {
     await js('App.togglePanel("graph")');
     await poll(() => js('App._graphCleanup instanceof AbortController'), 'the graph to start');
     await js('App.togglePanel("fileExplorer")');
-    for (const name of ['taskflow', 'dailysync', 'recall', 'dataforge', 'focuspulse']) {
+    for (const name of ['taskflow', 'dailysync', 'recall', 'dataforge', 'focuspulse', 'synapse', 'vaultdoctor']) {
       assert.ok(await js(`App.plugins.some((p) => p.name === ${JSON.stringify(name)})`), 'no plugin ' + name);
       await js(`App.openPlugin(${JSON.stringify(name)}); 0`);
       await sleep(300); // a negative check: give any blocked style/script a moment to be reported

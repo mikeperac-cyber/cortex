@@ -36,6 +36,12 @@ contextBridge.exposeInMainWorld('cortex', {
     onUpdated: (callback) => subscribe('vault:index-updated', guard('vault:index-updated', () => callback())),
     onFileChanged: (callback) => subscribe('vault:file-changed', guard('vault:file-changed', (e, absPath) => callback(absPath))),
   },
+  // BYOK AI: the key goes in through setConfig and never comes back out; completions run in main
+  ai: {
+    getConfig: () => ipcRenderer.invoke('ai:get-config'),
+    setConfig: (opts) => ipcRenderer.invoke('ai:set-config', opts),
+    complete: (req) => ipcRenderer.invoke('ai:complete', req),
+  },
   getVaultPath: () => ipcRenderer.invoke('get-vault-path'),
   readFile: (filePath) => ipcRenderer.invoke('read-file', filePath),
   writeFile: (filePath, content, opts) => ipcRenderer.invoke('write-file', filePath, content, opts),

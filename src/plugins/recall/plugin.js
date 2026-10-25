@@ -32,10 +32,16 @@ class RecallPlugin {
 
   open() { this.renderPanel(); }
 
-  close() { if (this.panelEl) this.panelEl.classList.remove('visible'); }
+  close() { this.panelEl?.remove(); this.panelEl = null; } // removed, not hidden: a reopened panel never meets stale ids
+
+  // Card text is user (or AI) text and goes into innerHTML: escape it
+  esc(value) {
+    return String(value).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+  }
 
   renderPanel() {
     this.close();
+    document.getElementById('plugin-recall-review')?.remove();
     const root = document.getElementById('plugin-root');
     const today = CortexLib.localDateStr();
     const dueCards = this.cards.filter(c => this.isDue(c, today));
@@ -69,8 +75,8 @@ class RecallPlugin {
             <div style="display:flex;flex-direction:column;gap:8px;">
               ${this.cards.slice(0, 10).map(c => `
                 <div style="background:var(--bg-2);border:1px solid var(--border-1);border-radius:8px;padding:12px;">
-                  <div style="font-size:13px;font-weight:500;margin-bottom:4px;">${c.front}</div>
-                  <div style="font-size:12px;color:var(--text-2);">${c.back}</div>
+                  <div style="font-size:13px;font-weight:500;margin-bottom:4px;">${this.esc(c.front)}</div>
+                  <div style="font-size:12px;color:var(--text-2);">${this.esc(c.back)}</div>
                 </div>
               `).join('')}
             </div>
@@ -127,6 +133,7 @@ class RecallPlugin {
     if (this.reviewQueue.length === 0) { this.renderPanel(); return; }
     this.currentCard = this.reviewQueue[0];
     const root = document.getElementById('plugin-root');
+    document.getElementById('plugin-recall-review')?.remove(); // one review panel, never a stack of them
 
     const panel = document.createElement('div');
     panel.className = 'plugin-panel visible';
@@ -139,8 +146,8 @@ class RecallPlugin {
       <div class="plugin-panel-body" style="display:flex;flex-direction:column;align-items:center;justify-content:center;">
         <div style="max-width:500px;width:100%;text-align:center;">
           <div style="font-size:11px;color:var(--text-3);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:16px;">Question</div>
-          <div id="rcCardFront" style="font-family:var(--font-display);font-size:22px;margin-bottom:32px;line-height:1.4;">${this.currentCard.front}</div>
-          <div id="rcCardBack" style="display:none;font-size:16px;color:var(--text-1);margin-bottom:32px;padding:20px;background:var(--bg-2);border-radius:8px;">${this.currentCard.back}</div>
+          <div id="rcCardFront" style="font-family:var(--font-display);font-size:22px;margin-bottom:32px;line-height:1.4;">${this.esc(this.currentCard.front)}</div>
+          <div id="rcCardBack" style="display:none;font-size:16px;color:var(--text-1);margin-bottom:32px;padding:20px;background:var(--bg-2);border-radius:8px;">${this.esc(this.currentCard.back)}</div>
           <button id="rcReveal" style="padding:10px 32px;background:var(--bg-3);border:1px solid var(--border-1);border-radius:8px;color:var(--text-0);cursor:pointer;font-size:14px;">Reveal Answer</button>
           <div id="rcGrades" style="display:none;gap:8px;justify-content:center;">
             <button class="rc-grade" data-grade="again" style="padding:10px 20px;background:rgba(232,124,124,0.1);border:1px solid var(--danger);border-radius:8px;color:var(--danger);cursor:pointer;font-size:12px;">Again</button>
@@ -168,22 +175,24 @@ class RecallPlugin {
     panel.querySelector('#rcExitReview').addEventListener('click', () => { panel.remove(); this.renderPanel(); });
   }
 
+  // SM-2; a card answered "again" goes back to the end of this session's queue until it is recalled
   gradeCard(grade) {
     const card = this.currentCard;
-    const grades = { again: 0, hard: 1, good: 2, easy: 3 };
-    const quality = grades[grade];
-    if (quality >= 2) {
-      card.repetitions = (card.repetitions || 0) + 1;
-      if (card.repetitions === 1) card.interval = 1;
-      else if (card.repetitions === 2) card.interval = 3;
-      else card.interval = Math.round((card.interval || 1) * 2.5);
-    } else { card.repetitions = 0; card.interval = 1; }
-    const nextReview = new Date();
-    nextReview.setDate(nextReview.getDate() + card.interval);
-    card.nextReview = nextReview.toISOString();
+    Object.assign(card, CortexLib.schedule(card, grade));
     this.saveCards();
     this.reviewQueue.shift();
+    if (grade === 'again') this.reviewQueue.push(card);
     this.showReviewCard();
+  }
+
+  // Synapse hands over generated cards ({ front, back }); they are due today. Returns how many were added.
+  addCards(cards) {
+    const base = Math.max(Date.now(), ...this.cards.map(c => (Number(c.id) || 0) + 1));
+    const now = new Date().toISOString();
+    cards.forEach((c, i) => this.cards.push({ id: base + i, front: c.front, back: c.back, interval: 1, repetitions: 0, ease: 2.5, nextReview: now }));
+    this.saveCards();
+    if (this.panelEl) this.renderPanel();
+    return cards.length;
   }
 }
 
