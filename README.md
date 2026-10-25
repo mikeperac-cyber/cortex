@@ -11,7 +11,7 @@ Plain Markdown files. One live index. No account, no cloud, no lock-in.
 [![License: MIT](https://img.shields.io/badge/license-MIT-e8a84c.svg)](LICENSE)
 [![Platform: Windows](https://img.shields.io/badge/platform-Windows-0a84ff.svg)](#)
 [![Electron](https://img.shields.io/badge/Electron-28.3.3-47848F.svg)](#)
-[![Tests](https://img.shields.io/badge/tests-196%20unit%20%C2%B7%2026%20e2e-3fb950.svg)](#testing)
+[![Tests](https://img.shields.io/badge/tests-197%20unit%20%C2%B7%2029%20e2e-3fb950.svg)](#testing)
 
 </div>
 
@@ -66,7 +66,7 @@ at the old name.
 - A create or rename can never silently overwrite an existing note
 - A save that fails stays visibly dirty — nothing is lost quietly
 - The whole filesystem surface is confined to the vault root and goes through one audited module
-- 196 unit tests and 26 end-to-end scenarios run against a throwaway vault, never your real one — the AI ones against a local stand-in, never a real provider
+- 197 unit tests and 29 end-to-end scenarios run against a throwaway vault, never your real one — the AI ones against a local stand-in, never a real provider
 
 <p align="center">
   <img src="docs/screenshots/graph-view.png" width="860" alt="The graph view, showing resolved links between four notes">
@@ -119,8 +119,12 @@ Without a system keychain the key is kept in memory until you quit, never writte
 npm run build
 ```
 
-Produces `dist/Cortex 1.0.0.exe`, a single-file portable build — no
+Produces `dist/Cortex-<version>-portable.exe`, a single-file portable build — no
 installer, no admin rights, just run it.
+
+To publish a release, bump `version` in `package.json`, add `docs/releases/v<version>.md`, merge, then push the tag
+(`git tag v1.1.0 && git push origin v1.1.0`). The Release workflow tests that commit on Windows, builds the exe and
+publishes the GitHub release with its SHA-256.
 
 ## Testing
 
