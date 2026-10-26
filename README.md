@@ -123,7 +123,7 @@ Produces `dist/Cortex-<version>-portable.exe`, a single-file portable build — 
 installer, no admin rights, just run it.
 
 To publish a release, bump `version` in `package.json`, add `docs/releases/v<version>.md`, merge, then push the tag
-(`git tag v1.1.0 && git push origin v1.1.0`). The Release workflow tests that commit on Windows, builds the exe and
+(`git tag v1.1.0 && git push origin v1.1.0`), or click **Run workflow** on the Release workflow in the Actions tab. The Release workflow tests that commit on Windows, builds the exe and
 publishes the GitHub release with its SHA-256.
 
 ## Testing

@@ -1,10 +1,12 @@
-# Pushing a version tag (git tag v1.1.0 && git push origin v1.1.0) tests the tagged commit on Windows, builds the portable exe
-# and publishes a GitHub release with the notes from docs/releases/<tag>.md plus the exe's SHA-256.
+# Pushing a version tag (git tag v1.1.0 && git push origin v1.1.0), or "Run workflow" on the Actions tab (releases main as
+# v<package.json version>), tests that commit on Windows, builds the portable exe and publishes a GitHub release with the
+# notes from docs/releases/<tag>.md plus the exe's SHA-256.
 name: Release
 
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -19,11 +21,13 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Tag matches package.json
+      - name: Release tag from package.json
         shell: pwsh
         run: |
-          $v = (Get-Content package.json | ConvertFrom-Json).version
-          if ("v$v" -ne "${{ github.ref_name }}") { throw "tag ${{ github.ref_name }} != package.json v$v" }
+          $tag = 'v' + (Get-Content package.json | ConvertFrom-Json).version
+          if ('${{ github.ref_type }}' -eq 'tag' -and $tag -ne '${{ github.ref_name }}') { throw "tag ${{ github.ref_name }} != package.json $tag" }
+          if (-not (Test-Path "docs/releases/$tag.md")) { throw "missing docs/releases/$tag.md" }
+          "TAG=$tag" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
       - run: npm test
       - run: npm run test:e2e
       - run: npm run build -- --publish never
@@ -34,10 +38,12 @@ jobs:
         run: |
           $exe = Get-ChildItem dist -Filter '*-portable.exe' | Select-Object -First 1
           $sha = (Get-FileHash $exe.FullName -Algorithm SHA256).Hash.ToLower()
-          $notes = Get-Content 'docs/releases/${{ github.ref_name }}.md' -Raw
+          $notes = Get-Content "docs/releases/$env:TAG.md" -Raw
           $notes.Replace('{{SHA256}}', $sha).Replace('{{COMMIT}}', '${{ github.sha }}'.Substring(0, 7)) | Set-Content dist/notes.md -Encoding utf8
       - uses: softprops/action-gh-release@v2
         with:
-          name: Cortex ${{ github.ref_name }}
+          tag_name: ${{ env.TAG }}
+          target_commitish: ${{ github.sha }}
+          name: Cortex ${{ env.TAG }}
           body_path: dist/notes.md
           files: dist/*-portable.exe
