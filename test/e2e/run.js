@@ -20,6 +20,9 @@ for (const [rel, content] of Object.entries(scenario.seed || {})) {
   fs.writeFileSync(abs, content);
 }
 app.setPath('userData', path.join(tmp, 'userData'));
+// CI runners (GitHub's windows-latest) have no GPU: Chromium's GPU process crashes until Electron gives up ("GPU process isn't usable")
+app.disableHardwareAcceleration();
+app.commandLine.appendSwitch('disable-gpu');
 process.env.CORTEX_VAULT = vault;
 process.env.CORTEX_E2E = '1';
 
