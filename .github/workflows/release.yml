@@ -7,13 +7,18 @@ on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish the GitHub release (off = only test and build)
+        type: boolean
+        default: true
 
 permissions:
   contents: write
 
 jobs:
   release:
-    runs-on: windows-latest
+    runs-on: windows-2022 # Electron 28's GPU process crashes on the windows-2025 image that windows-latest now uses
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -41,6 +46,7 @@ jobs:
           $notes = Get-Content "docs/releases/$env:TAG.md" -Raw
           $notes.Replace('{{SHA256}}', $sha).Replace('{{COMMIT}}', '${{ github.sha }}'.Substring(0, 7)) | Set-Content dist/notes.md -Encoding utf8
       - uses: softprops/action-gh-release@v2
+        if: github.event_name == 'push' || inputs.publish
         with:
           tag_name: ${{ env.TAG }}
           target_commitish: ${{ github.sha }}
