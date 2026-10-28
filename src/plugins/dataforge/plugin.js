@@ -110,7 +110,11 @@ class DataForgePlugin {
       });
       resultsEl.appendChild(fragment);
     } else {
-      resultsEl.innerHTML = '<div style="color:var(--text-3);text-align:center;padding:20px;">No results found</div>';
+      resultsEl.textContent = '';
+      const emptyEl = document.createElement('div');
+      emptyEl.style.cssText = 'color:var(--text-3);text-align:center;padding:20px;';
+      emptyEl.textContent = 'No results found';
+      resultsEl.appendChild(emptyEl);
     }
   }
 
