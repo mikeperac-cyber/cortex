@@ -102,3 +102,34 @@ test('toggleTaskByIndex keeps CRLF, BOM and frontmatter; numbers like the render
   assert.equal(toggleTaskByIndex('\uFEFF---\nx: 1\n---\r\n+ [ ] a\r\n- [ ] b\r\n', 1), '\uFEFF---\nx: 1\n---\r\n+ [ ] a\r\n- [x] b\r\n');
   assert.equal(toggleTaskByIndex('- [ ] a', -1), '- [ ] a');
 });
+test('renderMarkdown resets state to null when parser throws', () => {
+  const marked = require('marked');
+  let parserInstance = null;
+  const origParser = marked.Marked.prototype.parser;
+  marked.Marked.prototype.parser = function(...args) {
+    parserInstance = this;
+    return origParser.apply(this, args);
+  };
+
+  const customError = new Error('parser error');
+  try {
+    assert.throws(
+      () => renderMarkdown('[[test]]', {
+        isResolved: () => { throw customError; }
+      }),
+      (err) => err === customError
+    );
+
+    assert.notEqual(parserInstance, null);
+    const wikilinkRenderer = parserInstance.defaults.extensions.renderers.wikilink;
+
+    // Verify state was reset to null in the finally block by confirming
+    // that renderer invocation when not parsing fails with TypeError on null state
+    assert.throws(
+      () => wikilinkRenderer({ target: 'foo' }),
+      /Cannot read properties of null/
+    );
+  } finally {
+    marked.Marked.prototype.parser = origParser;
+  }
+});
