@@ -199,11 +199,13 @@ class SynapsePlugin {
       }
     }
     const hits = [...scores.values()].sort((a, b) => b.score - a.score).slice(0, 6);
-    const sources = [];
-    for (const h of hits) {
-      const read = await window.cortex.readFile(h.path);
-      if (read.success) sources.push({ title: h.stem, content: read.content, path: h.path });
-    }
+    const reads = await Promise.all(
+      hits.map(async (h) => {
+        const read = await window.cortex.readFile(h.path);
+        return read.success ? { title: h.stem, content: read.content, path: h.path } : null;
+      })
+    );
+    const sources = reads.filter(Boolean);
     const reply = await this.request(CortexLib.buildAskPrompt(question, sources), 'Reading ' + sources.length + ' note' + (sources.length === 1 ? '' : 's'));
     if (!reply || !this.panelEl) return;
     this.showResult('ask', null, reply, false, sources);
