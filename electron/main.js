@@ -284,13 +284,15 @@ async function renameNote(oldPath, newPath) {
   const newAbs = path.resolve(newPath);
   const updated = [];
   const failed = [];
-  for (const src of sources) {
-    const file = src === self?.path ? newAbs : src;
-    const read = await vaultFs.read(file); // fresh from disk: the index may lag behind a save made just before
-    if (!read.success) { failed.push(file); continue; }
-    const next = rewriteLinks(read.content, oldStem, newStem);
-    if (next !== read.content) ((await vaultFs.write(file, next)).success ? updated : failed).push(file);
-  }
+  await Promise.all(
+    Array.from(sources).map(async (src) => {
+      const file = src === self?.path ? newAbs : src;
+      const read = await vaultFs.read(file); // fresh from disk: the index may lag behind a save made just before
+      if (!read.success) { failed.push(file); return; }
+      const next = rewriteLinks(read.content, oldStem, newStem);
+      if (next !== read.content) ((await vaultFs.write(file, next)).success ? updated : failed).push(file);
+    })
+  );
   await Promise.all([path.resolve(oldPath), newAbs, ...updated].map((p) => index.update(p))); // a folder: old subtree out, new one in
   // The watcher finds nothing new after these updates, so open tabs of the rewritten notes and the panels hear it from here
   for (const p of updated) notify('vault:file-changed', p);
