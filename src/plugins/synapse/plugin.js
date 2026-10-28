@@ -191,9 +191,11 @@ class SynapsePlugin {
     question = String(question || '').trim();
     if (!question) return;
     // the index search ANDs its terms: search each keyword alone and rank notes by their summed scores
+    const terms = CortexLib.questionTerms(question);
+    const termHits = await Promise.all(terms.map(term => window.cortex.index.search(term, 10)));
     const scores = new Map();
-    for (const term of CortexLib.questionTerms(question)) {
-      for (const h of await window.cortex.index.search(term, 10)) {
+    for (const hits of termHits) {
+      for (const h of hits) {
         const cur = scores.get(h.path) || scores.set(h.path, { ...h, score: 0 }).get(h.path);
         cur.score += h.score;
       }
