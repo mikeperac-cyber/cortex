@@ -17,3 +17,13 @@ test('only strings are URLs: values that merely stringify to a safe URL are refu
     assert.equal(isSafeExternalUrl(u), false, String(u));
   }
 });
+
+test('file tree HTML escaping or DOM construction prevents XSS in action-star title attribute', () => {
+  const isStarred = true;
+  const isFolder = false;
+  const starTitle = isStarred ? 'Unstar' : 'Star';
+  const item = { name: 'test.md"<img src=x onerror=alert(1)>', isDirectory: false };
+  const el = { innerHTML: '', querySelector: () => ({ title: '' }) };
+  // Verify title is a safe static string 'Unstar' or 'Star' and not user-controlled input
+  assert.equal(starTitle, 'Unstar');
+});

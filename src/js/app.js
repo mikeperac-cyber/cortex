@@ -370,9 +370,9 @@ const App = {
       const isStarred = !isFolder && this._starredNotes.has(item.path);
       const starIcon = isStarred ? ' <span style="color:var(--accent-0);font-size:10px;">&#9733;</span>' : '';
 
-      // item.name is user-controlled (a file/folder name): build the static markup via innerHTML, then set the name with textContent.
+      // item.name is user-controlled (a file/folder name): build the static markup via innerHTML, set button title safely, and set the name with textContent.
       const addNoteBtn = isFolder ? '<button class="action-add-note" title="New Note in Folder"><svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M6 2V10M2 6H10" stroke="currentColor" stroke-width="1.2"/></svg></button>' : '';
-      const starBtnMarkup = isFolder ? '' : `<button class="action-star" title="${isStarred ? 'Unstar' : 'Star'}"><svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M6 1L7.5 4.5L11 5L8.5 7.5L9 11L6 9.5L3 11L3.5 7.5L1 5L4.5 4.5L6 1Z" stroke="currentColor" stroke-width="1" fill="${isStarred ? 'currentColor' : 'none'}"/></svg></button>`;
+      const starBtnMarkup = isFolder ? '' : `<button class="action-star"><svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M6 1L7.5 4.5L11 5L8.5 7.5L9 11L6 9.5L3 11L3.5 7.5L1 5L4.5 4.5L6 1Z" stroke="currentColor" stroke-width="1" fill="${isStarred ? 'currentColor' : 'none'}"/></svg></button>`;
       el.innerHTML = `${icon}<span class="file-name"></span>${starIcon}<div class="file-actions">
         ${addNoteBtn}
         ${starBtnMarkup}
@@ -380,6 +380,8 @@ const App = {
         <button class="action-delete" title="Delete"><svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 3H10M4 3V2H8V3M3 3L4 10H8L9 3" stroke="currentColor" stroke-width="1"/></svg></button>
       </div>`;
       el.querySelector('.file-name').textContent = item.name;
+      const starBtnEl = el.querySelector('.action-star');
+      if (starBtnEl) starBtnEl.title = isStarred ? 'Unstar' : 'Star';
 
       el.addEventListener('click', (e) => {
         if (e.target.closest('.file-actions')) return;
