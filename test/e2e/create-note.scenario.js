@@ -41,5 +41,26 @@ module.exports = {
     // Esc cancels: nothing is created
     await create('Cancelled', 'Escape');
     assert.deepEqual(fs.readdirSync(vault).sort(), ['Test Note.md', 'Welcome.md']);
+
+    // Creating note inside folder via createFile(folderPath)
+    const folderPath = path.join(vault, 'Projects');
+    fs.mkdirSync(folderPath, { recursive: true });
+    await js('App.renderFileTree()');
+
+    const createInFolder = async (folder, text, key = 'Enter') => {
+      await js(`window.__create = App.createFile(${JSON.stringify(folder)}); 0`);
+      assert.equal(await js('document.getElementById("askOverlay").classList.contains("visible")'), true, 'ask dialog did not open');
+      await js(`(() => {
+        const input = document.getElementById('askInput');
+        input.value = ${JSON.stringify(text)};
+        input.dispatchEvent(new KeyboardEvent('keydown', { key: ${JSON.stringify(key)}, bubbles: true }));
+      })()`);
+      await js('window.__create');
+    };
+
+    await createInFolder(folderPath, 'Project Plan');
+    const folderCreated = path.join(folderPath, 'Project Plan.md');
+    assert.ok(fs.existsSync(folderCreated), 'note inside folder was created on disk');
+    assert.ok((await activeTab()).endsWith('/Projects/Project Plan.md'), 'note inside folder is active tab');
   },
 };

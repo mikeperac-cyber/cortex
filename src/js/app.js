@@ -371,8 +371,11 @@ const App = {
       const starIcon = isStarred ? ' <span style="color:var(--accent-0);font-size:10px;">&#9733;</span>' : '';
 
       // item.name is user-controlled (a file/folder name): build the static markup via innerHTML, then set the name with textContent.
+      const addNoteBtn = isFolder ? '<button class="action-add-note" title="New Note in Folder"><svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M6 2V10M2 6H10" stroke="currentColor" stroke-width="1.2"/></svg></button>' : '';
+      const starBtnMarkup = isFolder ? '' : `<button class="action-star" title="${isStarred ? 'Unstar' : 'Star'}"><svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M6 1L7.5 4.5L11 5L8.5 7.5L9 11L6 9.5L3 11L3.5 7.5L1 5L4.5 4.5L6 1Z" stroke="currentColor" stroke-width="1" fill="${isStarred ? 'currentColor' : 'none'}"/></svg></button>`;
       el.innerHTML = `${icon}<span class="file-name"></span>${starIcon}<div class="file-actions">
-        <button class="action-star" title="${isStarred ? 'Unstar' : 'Star'}"><svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M6 1L7.5 4.5L11 5L8.5 7.5L9 11L6 9.5L3 11L3.5 7.5L1 5L4.5 4.5L6 1Z" stroke="currentColor" stroke-width="1" fill="${isStarred ? 'currentColor' : 'none'}"/></svg></button>
+        ${addNoteBtn}
+        ${starBtnMarkup}
         <button class="action-rename" title="Rename"><svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 10H10" stroke="currentColor" stroke-width="1"/></svg></button>
         <button class="action-delete" title="Delete"><svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 3H10M4 3V2H8V3M3 3L4 10H8L9 3" stroke="currentColor" stroke-width="1"/></svg></button>
       </div>`;
@@ -391,6 +394,15 @@ const App = {
           this.openFile(item.path);
         }
       });
+
+      // Add note button for folders
+      const addBtn = el.querySelector('.action-add-note');
+      if (addBtn) {
+        addBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this.createFile(item.path);
+        });
+      }
 
       // Star button
       const starBtn = el.querySelector('.action-star');
@@ -555,12 +567,13 @@ const App = {
     this.updateSaveError();
   },
 
-  async createFile() {
+  async createFile(parentFolderPath) {
     const input = await Dialogs.ask({ title: 'New note', placeholder: 'Note name' });
     if (!input) return;
     const parsed = CortexLib.normalizeName(input, '.md');
     if (!parsed.ok) { alert(parsed.error); return; }
-    const filePath = this.vaultPath + '/' + parsed.name;
+    const targetDir = parentFolderPath || this.vaultPath;
+    const filePath = targetDir + '/' + parsed.name;
     const title = parsed.name.replace(/\.md$/i, '').split('/').pop();
     // overwrite:false makes "create" atomic: an existing note is opened as-is, never rewritten
     const result = await window.cortex.writeFile(filePath, '# ' + title + '\n\nStart writing...\n', { overwrite: false });
@@ -1599,9 +1612,18 @@ const App = {
     const item = e.target.closest('.file-tree-item[data-path]');
     const filePath = item.dataset.path;
 
-    menu.innerHTML = `
+    const isFolder = item.nextElementSibling && item.nextElementSibling.classList.contains('folder-children');
+    const newNoteItem = isFolder
+      ? `<div class="context-menu-item" data-action="new-note-in-folder"><svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M6 2V10M2 6H10" stroke="currentColor" stroke-width="1.2"/></svg>New Note</div>`
+      : '';
+    const openOrStarItem = isFolder ? '' : `
       <div class="context-menu-item" data-action="open"><svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 2H6L8 4V10H2V2Z" stroke="currentColor" stroke-width="1"/></svg>Open</div>
       <div class="context-menu-item" data-action="star"><svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M6 1L7.5 4.5L11 5L8.5 7.5L9 11L6 9.5L3 11L3.5 7.5L1 5L4.5 4.5L6 1Z" stroke="currentColor" stroke-width="1"/></svg>Star</div>
+    `;
+
+    menu.innerHTML = `
+      ${newNoteItem}
+      ${openOrStarItem}
       <div class="context-menu-sep"></div>
       <div class="context-menu-item" data-action="rename"><svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 10H10" stroke="currentColor" stroke-width="1"/></svg>Rename</div>
       <div class="context-menu-item danger" data-action="delete"><svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 3H10M4 3V2H8V3M3 3L4 10H8L9 3" stroke="currentColor" stroke-width="1"/></svg>Delete</div>
@@ -1612,6 +1634,7 @@ const App = {
 
     menu.onclick = (ev) => {
       const action = ev.target.closest('.context-menu-item')?.dataset.action;
+      if (action === 'new-note-in-folder') this.createFile(filePath);
       if (action === 'open') { this.hideWelcome(); this.openFile(filePath); }
       if (action === 'star') this.toggleStar(filePath);
       if (action === 'rename') this.renameFile(filePath);
