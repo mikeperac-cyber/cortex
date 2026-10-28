@@ -1568,9 +1568,19 @@ const App = {
     filtered.slice(0, 20).forEach((cmd, i) => {
       const el = document.createElement('div');
       el.className = 'command-result-item' + (i === 0 ? ' selected' : '');
-      // cmd.icon/shortcut come from this.commands or the fixed template above (trusted); cmd.name can be a tab's file name.
-      el.innerHTML = `<span class="cmd-icon">${cmd.icon || ''}</span><span class="cmd-label"></span><span class="cmd-shortcut">${cmd.shortcut || ''}</span>`;
-      el.querySelector('.cmd-label').textContent = cmd.name;
+      const iconSpan = document.createElement('span');
+      iconSpan.className = 'cmd-icon';
+      if (cmd.icon) iconSpan.innerHTML = cmd.icon;
+
+      const labelSpan = document.createElement('span');
+      labelSpan.className = 'cmd-label';
+      labelSpan.textContent = cmd.name;
+
+      const shortcutSpan = document.createElement('span');
+      shortcutSpan.className = 'cmd-shortcut';
+      if (cmd.shortcut) shortcutSpan.textContent = cmd.shortcut;
+
+      el.append(iconSpan, labelSpan, shortcutSpan);
       el.addEventListener('click', () => { cmd.action(); this.closeCommandPalette(); });
       fragment.appendChild(el);
     });
