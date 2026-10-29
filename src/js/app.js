@@ -1078,16 +1078,24 @@ const App = {
     this.$('statusbarReadingTime').textContent = readingTime + ' min read';
 
     const textarea = this.$('editorTextarea');
+    const text = textarea.value;
     const pos = textarea.selectionStart;
-    const lines = textarea.value.substring(0, pos).split('\n');
-    this.$('statusbarCursor').textContent = 'Ln ' + lines.length + ', Col ' + (lines[lines.length - 1].length + 1);
+    let line = 1, lastNL = -1;
+    for (let i = 0; i < pos; i++) {
+      if (text.charCodeAt(i) === 10) { line++; lastNL = i; }
+    }
+    this.$('statusbarCursor').textContent = 'Ln ' + line + ', Col ' + (pos - lastNL);
   },
 
   updateCursorPosition() {
     const textarea = this.$('editorTextarea');
+    const text = textarea.value;
     const pos = textarea.selectionStart;
-    const lines = textarea.value.substring(0, pos).split('\n');
-    this.$('statusbarCursor').textContent = 'Ln ' + lines.length + ', Col ' + (lines[lines.length - 1].length + 1);
+    let line = 1, lastNL = -1;
+    for (let i = 0; i < pos; i++) {
+      if (text.charCodeAt(i) === 10) { line++; lastNL = i; }
+    }
+    this.$('statusbarCursor').textContent = 'Ln ' + line + ', Col ' + (pos - lastNL);
   },
 
   // ---- Panels ----

@@ -240,10 +240,12 @@ class VaultIndex {
       .sort((a, b) => cmp(a.norm.stem, b.norm.stem) || cmp(a.key, b.key));
     for (const s of sources) {
       const found = findMentions(s.content, e.meta.stem);
-      const lines = found.length ? splitLines(s.content) : null;
-      for (const { line, col } of found) {
+      if (!found.length) continue;
+      const lines = splitLines(s.content);
+      for (let i = 0; i < found.length; i++) {
         if (hits.length >= limit) return hits;
-        hits.push({ path: s.meta.path, stem: s.meta.stem, line, col, text: lines[line] });
+        const m = found[i];
+        hits.push({ path: s.meta.path, stem: s.meta.stem, line: m.line, col: m.col, text: lines[m.line] });
       }
     }
     return hits;
