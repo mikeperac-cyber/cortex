@@ -1498,7 +1498,16 @@ const App = {
   renderSwitcher() {
     this._switcherRows = CortexLib.rankNotes(this.$('switcherInput').value, this._switcherNotes, this._recent, 20);
     this._switcherIndex = 0;
-    const rows = this._switcherRows.map((note, i) => {
+    const container = this.$('switcherResults');
+    if (!this._switcherRows.length) {
+      const none = document.createElement('div');
+      none.className = 'switcher-empty';
+      none.textContent = 'No matching notes';
+      container.replaceChildren(none);
+      return;
+    }
+    const fragment = document.createDocumentFragment();
+    this._switcherRows.forEach((note, i) => {
       const row = document.createElement('div');
       row.className = 'command-result-item switcher-item' + (i === 0 ? ' selected' : '');
       row.dataset.index = i;
@@ -1509,15 +1518,9 @@ const App = {
       rel.className = 'switcher-rel';
       rel.textContent = note.rel;
       row.append(stem, rel);
-      return row;
+      fragment.append(row);
     });
-    if (!rows.length) {
-      const none = document.createElement('div');
-      none.className = 'switcher-empty';
-      none.textContent = 'No matching notes';
-      rows.push(none);
-    }
-    this.$('switcherResults').replaceChildren(...rows);
+    container.replaceChildren(fragment);
   },
 
   onSwitcherKeydown(e) {
@@ -1559,7 +1562,6 @@ const App = {
 
   renderCommandResults(query) {
     const container = this.$('commandResults');
-    container.innerHTML = '';
 
     const allCommands = [
       ...this.commands,
@@ -1570,7 +1572,16 @@ const App = {
       })),
     ];
 
-    const filtered = allCommands.filter(c => c.name.toLowerCase().includes(query.toLowerCase()));
+    const q = query.toLowerCase();
+    const filtered = allCommands.filter(c => c.name.toLowerCase().includes(q));
+
+    if (!filtered.length) {
+      const none = document.createElement('div');
+      none.style.cssText = 'padding:16px;color:var(--text-3);font-size:13px;text-align:center;';
+      none.textContent = 'No results found';
+      container.replaceChildren(none);
+      return;
+    }
 
     const fragment = document.createDocumentFragment();
     filtered.slice(0, 20).forEach((cmd, i) => {
@@ -1592,11 +1603,7 @@ const App = {
       el.addEventListener('click', () => { cmd.action(); this.closeCommandPalette(); });
       fragment.appendChild(el);
     });
-    container.appendChild(fragment);
-
-    if (filtered.length === 0) {
-      container.innerHTML = '<div style="padding:16px;color:var(--text-3);font-size:13px;text-align:center;">No results found</div>';
-    }
+    container.replaceChildren(fragment);
   },
 
   registerCoreCommands() {
